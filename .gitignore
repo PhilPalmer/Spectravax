@@ -1,0 +1,8 @@
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Scripts
+analysis/networkx/
+
+# Data
+data/
