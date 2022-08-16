@@ -1,4 +1,5 @@
 biopython==1.79
 jupyterlab==3.4.5
+igviz==0.4.0
 networkx==2.8.5
 scipy==1.9.0
