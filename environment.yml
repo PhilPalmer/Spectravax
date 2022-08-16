@@ -1,0 +1,8 @@
+name: tvax 
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - pip:
+    - -r requirements.txt
