@@ -8,7 +8,6 @@ Tool for T-cell vaccine design by optimising coverage of potential T-cell epitop
 git clone https://github.com/PhilPalmer/TVax.git && cd TVax
 
 # Install dependencies with Conda
-conda env create --name tvax --file environment.yml && conda activate tvax
-# OR with Python
-pip install -r requirements.txt
+conda env create --name tvax --file environment.yml
+conda activate tvax
 ```
