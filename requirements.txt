@@ -3,4 +3,5 @@ jupyterlab==3.4.5
 igviz==0.4.0
 matplotlib==3.5.3
 networkx==2.8.5
+pandas==1.4.3
 scipy==1.9.0
