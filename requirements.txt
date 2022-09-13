@@ -3,5 +3,7 @@ jupyterlab==3.4.5
 igviz==0.4.0
 matplotlib==3.5.3
 networkx==2.8.5
+numpy==1.23.2
 pandas==1.4.3
+scikit-learn==1.1.2
 scipy==1.9.0
