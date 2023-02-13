@@ -11,6 +11,7 @@ import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import plotly.express as px
 
 
 #################
@@ -186,7 +187,7 @@ def plot_elbow_graph(wcss, figsize=(10, 6)):
     return fig
 
 
-def plot_pca(df, type='3D', group_by='cluster', colours=['red','blue','green','orange','purple','brown','pink','gray','olive','cyan'], figsize=(10, 6)):
+def plot_pca(df, type='3D', interactive=False, group_by='cluster', colours=['red','blue','green','orange','purple','brown','pink','gray','olive','cyan'], figsize=(10, 6)):
     """
     Plot PCA
     :param df: dataframe
@@ -196,6 +197,13 @@ def plot_pca(df, type='3D', group_by='cluster', colours=['red','blue','green','o
     :param figsize: figure size
     :return: figure
     """
+    if interactive:
+        px.defaults.template = 'plotly_white'
+        df['cluster'] = df['cluster'].astype(str)
+        color_discrete_map = df[['cluster', 'colour']].drop_duplicates().set_index('cluster').to_dict()['colour']
+        fig = px.scatter_3d(df, x='PCA1', y='PCA2', z='PCA3', color='cluster', hover_name='Sequence_id', color_discrete_map=color_discrete_map, opacity=0.8)
+        fig.update_traces(marker=dict(line=dict(width=1, color='#808080')))
+        return fig
     fig = plt.figure(figsize=figsize)
     if type == '3D':
         ax = fig.add_subplot(111, projection='3d')
@@ -286,9 +294,10 @@ def pca_protein_rank(msa_pr_path, n_clusters=None, plot=True):
     elbow_plot = plot_elbow_graph(wcss)
     pca_2d_plot = plot_pca(comp_df, type='2D')
     pca_3d_plot = plot_pca(comp_df, type='3D')
+    pca_interactive_plot = plot_pca(comp_df, interactive=True)
     loadings_plot = plot_loadings(loadings_df)
 
-    return clusters_dict, elbow_plot, pca_2d_plot, pca_3d_plot, loadings_plot
+    return clusters_dict, comp_df, elbow_plot, pca_2d_plot, pca_3d_plot, pca_interactive_plot, loadings_plot
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Perform PCA and clustering on a multiple sequence alignment')
