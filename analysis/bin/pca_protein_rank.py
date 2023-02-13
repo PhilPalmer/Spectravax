@@ -288,7 +288,7 @@ def pca_protein_rank(msa_pr_path, n_clusters=None, plot=True):
     clusters_dict = comp_df[['Sequence_id', 'cluster']].set_index('Sequence_id').to_dict()['cluster']
     
     if not plot:
-        return clusters_dict
+        return clusters_dict, comp_df
     
     # Plotting
     elbow_plot = plot_elbow_graph(wcss)
