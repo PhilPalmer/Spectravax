@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import seaborn as sns
 
 
 #################
@@ -139,10 +140,11 @@ def get_clusters(msa_df, pca_scores, n_clusters):
     comp_df = pd.concat([comp_df.reset_index(), pca], axis=1)
     comp_df.columns.values[-3:] = ['PCA1','PCA2','PCA3']
     comp_df['cluster'] = kmeans_pca.labels_
-    comp_df['cluster_rank'] = comp_df['cluster'].map({0:'first',
-                    1:'second',
-                    2: 'third',
-                    3: 'fourth'})
+    comp_df['cluster'] = comp_df['cluster'] + 1
+    comp_df['cluster_rank'] = comp_df['cluster'].map({1:'first',
+                    2:'second',
+                    3: 'third',
+                    4: 'fourth'})
     return comp_df
 
 
@@ -187,7 +189,7 @@ def plot_elbow_graph(wcss, figsize=(10, 6)):
     return fig
 
 
-def plot_pca(df, type='3D', interactive=False, group_by='cluster', colours=['red','blue','green','orange','purple','brown','pink','gray','olive','cyan'], figsize=(10, 6)):
+def plot_pca(df, plot_type='3D', interactive=False, group_by='cluster', colours=sns.color_palette('colorblind'), figsize=(10, 6)):
     """
     Plot PCA
     :param df: dataframe
@@ -197,6 +199,12 @@ def plot_pca(df, type='3D', interactive=False, group_by='cluster', colours=['red
     :param figsize: figure size
     :return: figure
     """
+    # Define clusters
+    df.loc[df['Sequence_id'].str.contains('design'), 'cluster'] = 'vaccine design'
+    df['cluster'] = df['cluster'].astype(int, errors='ignore')
+    # Define colours for each cluster
+    df['colour'] = df[group_by].map({cluster: colours[i % len(colours)] for i, cluster in enumerate(df[group_by].unique())})
+    df.loc[df['Sequence_id'].str.contains('design'), 'colour'] = 'black'
     if interactive:
         px.defaults.template = 'plotly_white'
         df['cluster'] = df['cluster'].astype(str)
@@ -205,12 +213,8 @@ def plot_pca(df, type='3D', interactive=False, group_by='cluster', colours=['red
         fig.update_traces(marker=dict(line=dict(width=1, color='#808080')))
         return fig
     fig = plt.figure(figsize=figsize)
-    if type == '3D':
+    if plot_type == '3D':
         ax = fig.add_subplot(111, projection='3d')
-    for i, c in enumerate(colours):
-        if i == len(set(df[group_by])):
-            break
-        df.loc[df[group_by]==i, 'colour'] = c
     for t1 in list(set(df[group_by])):
         group_df = df.loc[df[group_by]==t1]
         X = group_df['PCA1']
@@ -218,9 +222,9 @@ def plot_pca(df, type='3D', interactive=False, group_by='cluster', colours=['red
         Z = group_df['PCA3']
         C = group_df['colour']
         S = group_df['size']
-        if type == '2D':
+        if plot_type == '2D':
             plt.scatter(X, Y, c = C, edgecolor='black', s=S, label=t1)
-        elif type == '3D':
+        elif plot_type == '3D':
             ax.scatter(X, Y, Z, c = C, edgecolor='black', s=S, label=t1)
     plt.xlabel('PC 1', fontsize='12')
     plt.ylabel('PC 2', rotation = '90', fontsize='12')
@@ -228,7 +232,7 @@ def plot_pca(df, type='3D', interactive=False, group_by='cluster', colours=['red
     plt.yticks(size='10')
     plt.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=12)
     plt.tight_layout()
-    if type == '3D':
+    if plot_type == '3D':
         ax.set_xlim(min(df['PCA1']), max(df['PCA1']))
         ax.set_ylim(min(df['PCA2']), max(df['PCA2']))
         ax.set_zlim(min(df['PCA3']), max(df['PCA3']))
