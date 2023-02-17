@@ -189,7 +189,7 @@ def plot_elbow_graph(wcss, figsize=(10, 6)):
     return fig
 
 
-def plot_pca(df, plot_type='3D', interactive=False, group_by='cluster', colours=sns.color_palette('colorblind'), figsize=(10, 6)):
+def plot_pca(df, plot_type='3D', interactive=False, group_by='cluster', colours=list(sns.color_palette('colorblind').as_hex()), figsize=(10, 6)):
     """
     Plot PCA
     :param df: dataframe
