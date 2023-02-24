@@ -61,12 +61,13 @@ def build_epitope_graph(config: Optional[EpitopeGraphConfig] = None) -> nx.Graph
     # Decycle graph
     if config.decycle:
         G = decycle_graph(G)
-    # Add begin and end nodes
-    G = add_begin_end_nodes(G, config)
+    # Add begin/end nodes and positions
+    G = add_begin_end_nodes(G, config.edge_colour)
+    G = add_pos(G, config.aligned)
     return G
 
 
-def add_begin_end_nodes(G: nx.Graph, config: EpitopeGraphConfig) -> nx.Graph:
+def add_begin_end_nodes(G: nx.Graph, edge_colour: str) -> nx.Graph:
     """
     Add begin and end nodes to the graph.
     """
@@ -80,17 +81,19 @@ def add_begin_end_nodes(G: nx.Graph, config: EpitopeGraphConfig) -> nx.Graph:
     G.add_node("BEGIN", **empty_attrs, pos=(0, 0))
     G.add_node("END", **empty_attrs, pos=(0, 0))
     # Add edges
-    for e in begin_nodes:
-        G.add_edge("BEGIN", e, colour=config.edge_colour)
-    for e in end_nodes:
-        G.add_edge(e, "END", colour=config.edge_colour)
-    # Add position attribute
-    if not config.aligned:
-        for e in G.nodes():
-            if e != "BEGIN" and e != "END":
-                pos = nx.shortest_path_length(G, source="BEGIN", target=e)
-                score = f(G, e)
-                nx.set_node_attributes(G, {e: (pos, score)}, "pos")
+    G.add_edges_from([("BEGIN", e) for e in begin_nodes], colour=edge_colour)
+    G.add_edges_from([(e, "END") for e in end_nodes], colour=edge_colour)
+    return G
+
+
+def add_pos(G: nx.Graph, aligned: bool = False) -> nx.Graph:
+    """
+    Add position attribute to the graph (useful for plotting).
+    """
+    if not aligned:
+        paths = nx.shortest_path_length(G, source="BEGIN")
+        pos = {n: (d, f(G, n)) for n, d in paths.items() if n != "BEGIN" and n != "END"}
+        nx.set_node_attributes(G, pos, "pos")
     # Ensure the 'END' node is always at the end of the graph
     end_pos = (
         max([pos[0] for pos in list(nx.get_node_attributes(G, "pos").values())]) + 1
