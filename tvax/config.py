@@ -46,6 +46,17 @@ default_alleles = [
 ]
 
 
+class Weights(BaseModel):
+    """
+    Config Object for Weights to Score Epitopes in the Graph.
+    """
+
+    frequency: float = 1
+    processing: float = 1
+    weak_mhc_binding: float = 1
+    strong_mhc_binding: float = 1
+
+
 class EpitopeGraphConfig(BaseModel):
     """
     Config Object for Epitope Graph Construction.
@@ -54,22 +65,35 @@ class EpitopeGraphConfig(BaseModel):
     fasta_path: Path = None
     k: int = 9
     m: int = 1
+    weak_percentile_threshold: float = 2
+    strong_percentile_threshold: float = 0.5
     aligned: bool = False
     decycle: bool = True
     equalise_clades: bool = True
     n_clusters: Optional[int] = None
-    weights: dict = {
-        "freq": 1,
-        "immunogenicity": 1,
-        "weak_mhc_binding": 1,
-        "strong_mhc_binding": 1,
-        "known_epitope": 0,
-    }
+    edge_colour = "#BFBFBF"
+    weights: Weights = Weights()
     hla_path: Optional[Path] = None
     iedb_path: Optional[Path] = None
     immune_scores_path: Optional[Path] = None
+    msa_path: Optional[Path] = None
     # TODO: Add file path for list of alleles
     alleles: List[Literal[tuple(supported_alleles())]] = default_alleles
+
+    @validator("fasta_path", pre=True, always=True)
+    def validate_fasta_path(cls, value):
+        if value is None:
+            raise ValueError("Please provide a FASTA file path.")
+        if not Path(value).exists():
+            raise ValueError(f"File {value} does not exist.")
+        return value
+
+    @validator("msa_path", pre=True, always=True)
+    def validate_msa_path(cls, value, values):
+        if value is None:
+            fasta_path = values.get("fasta_path")
+            msa_path = ".".join(str(fasta_path).split(".")[:-1]) + ".msa"
+            return Path(msa_path)
 
     @validator("alleles", pre=True, always=True)
     def validate_alleles(cls, value):
