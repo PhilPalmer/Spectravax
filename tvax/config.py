@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import mhcflurry
 
 from pathlib import Path
