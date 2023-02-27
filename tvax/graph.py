@@ -37,17 +37,7 @@ def build_epitope_graph(config: Optional[EpitopeGraphConfig] = None) -> nx.Graph
     kmers_dict = kmerise(seqs_dict, clades_dict, config.k)
 
     # Add scores/weights to the k-mers
-    if config.weights.frequency:
-        kmers_dict = add_frequency_score(kmers_dict, N)
-    if (
-        config.weights.processing
-        or config.weights.strong_mhc_binding
-        or config.weights.weak_mhc_binding
-    ):
-        kmers_dict = add_mhcflurry_scores(kmers_dict, config)
-    if config.equalise_clades:
-        kmers_dict = add_clade_weights(kmers_dict, clades_dict, N)
-    kmers_dict = add_score(kmers_dict, config)
+    kmers_dict = add_scores(kmers_dict, clades_dict, N, config)
 
     # Construct the graph
     G = nx.DiGraph()
@@ -69,7 +59,7 @@ def build_epitope_graph(config: Optional[EpitopeGraphConfig] = None) -> nx.Graph
 
 def add_begin_end_nodes(G: nx.Graph, edge_colour: str) -> nx.Graph:
     """
-    Add begin and end nodes to the graph.
+    Add begin and end nodes to the graph (for computational convenience).
     """
     # Get all nodes lacking predecessors and successors
     begin_nodes = [e for e in list(G.nodes) if not P(G, e)]
@@ -88,7 +78,7 @@ def add_begin_end_nodes(G: nx.Graph, edge_colour: str) -> nx.Graph:
 
 def add_pos(G: nx.Graph, aligned: bool = False) -> nx.Graph:
     """
-    Add position attribute to the graph (useful for plotting).
+    Add position attribute to the graph (for plotting convenience).
     """
     if not aligned:
         paths = nx.shortest_path_length(G, source="BEGIN")
@@ -155,6 +145,27 @@ def msa(fasta_path: Path, msa_path: Path) -> Path:
 ###########################
 
 
+def add_scores(
+    kmers_dict: dict, clades_dict: dict, N: int, config: EpitopeGraphConfig
+) -> dict:
+    """
+    Add scores to each k-mer.
+    """
+    # TODO: Do this in a more efficient way
+    if config.weights.frequency:
+        kmers_dict = add_frequency_score(kmers_dict, N)
+    if (
+        config.weights.processing
+        or config.weights.strong_mhc_binding
+        or config.weights.weak_mhc_binding
+    ):
+        kmers_dict = add_mhcflurry_scores(kmers_dict, config)
+    if config.equalise_clades:
+        kmers_dict = add_clade_weights(kmers_dict, clades_dict, N)
+    kmers_dict = add_score(kmers_dict, config)
+    return kmers_dict
+
+
 def add_score(kmers_dict: dict, config: EpitopeGraphConfig) -> dict:
     """
     Add a score to each k-mer.
@@ -165,9 +176,8 @@ def add_score(kmers_dict: dict, config: EpitopeGraphConfig) -> dict:
         kmers_dict[kmer]["score"] = sum(
             [kmers_dict[kmer][name] * val for name, val in config.weights]
         )
-        # If equalise clades is True, then multiple the total score by the clade weight
-        if config.equalise_clades:
-            kmers_dict[kmer]["score"] *= kmers_dict[kmer]["clade_weight"]
+        # Multiple the total score by the clade weight
+        kmers_dict[kmer]["score"] *= kmers_dict[kmer]["clade_weight"]
     # Min-max scale the scores
     scores = [kmers_dict[kmer]["score"] for kmer in kmers_dict]
     minmax_scaler = MinMaxScaler()
