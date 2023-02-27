@@ -149,7 +149,7 @@ def add_scores(
     kmers_dict: dict, clades_dict: dict, N: int, config: EpitopeGraphConfig
 ) -> dict:
     """
-    Add scores to each k-mer.
+    Add the scores and weights to each k-mer.
     """
     # TODO: Do this in a more efficient way
     if config.weights.frequency:
@@ -168,7 +168,7 @@ def add_scores(
 
 def add_score(kmers_dict: dict, config: EpitopeGraphConfig) -> dict:
     """
-    Add a score to each k-mer.
+    Add the total weighted score to each k-mer.
     """
     # Calculate the total score for each k-mer by summing the weighted scores
     # TODO: Check if dividing by the sum of the weights is necessary
