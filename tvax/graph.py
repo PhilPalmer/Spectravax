@@ -29,13 +29,10 @@ def build_epitope_graph(config: Optional[EpitopeGraphConfig] = None) -> nx.Graph
     # Load the FASTA file
     seqs_dict = load_fasta(config.fasta_path)
     N = len(seqs_dict)
-
     # Assign the sequences to clades
     clades_dict = assign_clades(seqs_dict, config)
-
     # Split the sequences into k-mers
     kmers_dict = kmerise(seqs_dict, clades_dict, config.k)
-
     # Add scores/weights to the k-mers
     kmers_dict = add_scores(kmers_dict, clades_dict, N, config)
 
@@ -131,11 +128,11 @@ def kmerise(seqs_dict: dict, clades_dict: dict, k: int = 9) -> dict:
     return kmers_dict
 
 
-def msa(fasta_path: Path, msa_path: Path) -> Path:
+def msa(fasta_path: Path, msa_path: Path, overwrite: bool = False) -> Path:
     """
     Perform multiple sequence alignment.
     """
-    if not os.path.exists(msa_path):
+    if not os.path.exists(msa_path) or overwrite:
         subprocess.run(f"mafft --auto {fasta_path} > {msa_path}", shell=True)
     return msa_path
 
