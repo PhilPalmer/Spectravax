@@ -17,9 +17,7 @@ def design_vaccines(G: nx.Graph, config: EpitopeGraphConfig) -> list:
     """
     # Find the optimal path(s) through the graph of epitopes
     Q = cocktail(G, config.m)
-    # Convert the paths to AA strings
-    vaccine_designs = [path_to_seq(path) for path in Q]
-    return vaccine_designs
+    return Q
 
 
 ###############################################
