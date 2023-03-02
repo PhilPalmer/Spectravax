@@ -22,19 +22,25 @@ from typing import Optional
 #############################
 
 
-def build_epitope_graph(config: Optional[EpitopeGraphConfig] = None) -> nx.Graph:
+def build_epitope_graph(
+    config: Optional[EpitopeGraphConfig] = None,
+    seqs_dict: dict = None,
+    kmers_dict: dict = None,
+) -> nx.Graph:
     """
     Construct an epitope graph from a configuration dictionary.
     """
-    # Load the FASTA file
-    seqs_dict = load_fasta(config.fasta_path)
-    N = len(seqs_dict)
-    # Assign the sequences to clades
-    clades_dict = assign_clades(seqs_dict, config)
-    # Split the sequences into k-mers
-    kmers_dict = kmerise(seqs_dict, clades_dict, config.k)
-    # Add scores/weights to the k-mers
-    kmers_dict = add_scores(kmers_dict, clades_dict, N, config)
+    if not kmers_dict:
+        # Load the FASTA file
+        if not seqs_dict:
+            seqs_dict = load_fasta(config.fasta_path)
+        N = len(seqs_dict)
+        # Assign the sequences to clades
+        clades_dict = assign_clades(seqs_dict, config)
+        # Split the sequences into k-mers
+        kmers_dict = kmerise(seqs_dict, clades_dict, config.k)
+        # Add scores/weights to the k-mers
+        kmers_dict = add_scores(kmers_dict, clades_dict, N, config)
 
     # Construct the graph
     G = nx.DiGraph()
