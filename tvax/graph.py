@@ -157,8 +157,7 @@ def add_scores(
         or config.weights.weak_mhc_binding
     ):
         kmers_dict = add_mhcflurry_scores(kmers_dict, config)
-    if config.equalise_clades:
-        kmers_dict = add_clade_weights(kmers_dict, clades_dict, N)
+    kmers_dict = add_clade_weights(kmers_dict, clades_dict, N)
     kmers_dict = add_score(kmers_dict, config)
     return kmers_dict
 
