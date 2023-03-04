@@ -10,7 +10,7 @@ import seaborn as sns
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
-from tvax.config import EpitopeGraphConfig
+from tvax.config import EpitopeGraphConfig, Weights
 from tvax.graph import load_fasta
 from tvax.pca_protein_rank import pca_protein_rank, plot_pca
 from tvax.seq import msa, path_to_seq
@@ -109,7 +109,9 @@ def plot_score(G: nx.Graph, score: str = "frequency") -> plt.figure:
     return fig
 
 
-def plot_scores(G: nx.Graph, paths: list = None) -> plt.figure:
+def plot_scores(
+    G: nx.Graph, weights: Weights, paths: list = None, percent: bool = False
+) -> plt.figure:
     """
     Plot the scores of the nodes in the graph
     :param G: The graph of epitopes
@@ -117,14 +119,18 @@ def plot_scores(G: nx.Graph, paths: list = None) -> plt.figure:
     :return: A figure of the scores of the nodes in the graph
     """
 
-    def _get_mean_score(G: nx.Graph, score: str = None):
+    def _get_mean_score(
+        G: nx.Graph,
+        weight_val: float,
+        score: str = None,
+    ):
         """
         Get the mean score of the nodes in the graph
         """
         return [
             np.mean(
                 [
-                    G.nodes[node][score]
+                    G.nodes[node][score] * weight_val * G.nodes[node]["clade_weight"]
                     for node in G.nodes
                     if G.nodes[node]["pos"][0] == p
                 ]
@@ -132,34 +138,34 @@ def plot_scores(G: nx.Graph, paths: list = None) -> plt.figure:
             for p in pos
         ]
 
-    # TODO: Generalise this function to work with any list of input scores
-    # TODO: Adjust the scores by the weights (including the clade weights)
-    if paths:
-        # Get the scores of each node in the path
-        pos = [G.nodes[node]["pos"][0] for node in paths[0]]
-        freq = [G.nodes[node]["frequency"] for node in paths[0]]
-        weak_mhc_binding = [G.nodes[node]["weak_mhc_binding"] for node in paths[0]]
-        strong_mhc_binding = [G.nodes[node]["strong_mhc_binding"] for node in paths[0]]
-        processing = [G.nodes[node]["processing"] for node in paths[0]]
-    else:
-        # Get the (mean) scores of all node positions in the graph
-        pos = list(set([G.nodes[node]["pos"][0] for node in G.nodes]))
-        freq = _get_mean_score(G, "frequency")
-        weak_mhc_binding = _get_mean_score(G, "weak_mhc_binding")
-        strong_mhc_binding = _get_mean_score(G, "strong_mhc_binding")
-        processing = _get_mean_score(G, "processing")
+    # Get scores
+    score_dict = {}
+    y_label = "Score"
+    for score_name, score_weight in weights:
+        if paths:
+            score_dict[score_name] = [
+                G.nodes[node][score_name] * score_weight * G.nodes[node]["clade_weight"]
+                for node in paths[0]
+            ]
+            pos = list(range(0, len(paths[0])))
+        else:
+            score_dict[score_name] = _get_mean_score(G, score_weight, score_name)
+            pos = list(set([G.nodes[node]["pos"][0] for node in G.nodes]))
+    score_arrays = [score_dict[score] for score in score_dict.keys()]
+    # For each position, for each score, express as a proportion of the total score
+    if percent:
+        y_label = "% Contribution to Total Score"
+        for i in range(0, len(score_arrays[0])):
+            total = sum([score_arrays[j][i] for j in range(0, len(score_arrays))])
+            for j in range(0, len(score_arrays)):
+                score_arrays[j][i] = score_arrays[j][i] / total * 100
+    labels = [format_title(score) for score in score_dict.keys()]
+
     # Plot stacked area
     fig, ax = plt.subplots(1, figsize=(16, 8))
-    ax.stackplot(
-        pos,
-        freq,
-        weak_mhc_binding,
-        strong_mhc_binding,
-        processing,
-        labels=["Frequency", "Weak MHC Binding", "Strong MHC Binding", "Processing"],
-    )
+    ax.stackplot(pos, *score_arrays, labels=labels)
     ax.set_xlabel("Position", fontsize=18)
-    ax.set_ylabel("Score", fontsize=18)
+    ax.set_ylabel(y_label, fontsize=18)
     ax.tick_params(axis="both", which="major", labelsize=14)
     ax.spines.right.set_visible(False)
     ax.spines.top.set_visible(False)
@@ -170,7 +176,7 @@ def plot_scores(G: nx.Graph, paths: list = None) -> plt.figure:
 
 
 def plot_corr(
-    G: nx.Graph, x: str = "frequency", y: str = "weak_mhc_binding"
+    G: nx.Graph, x: str = "frequency", y: str = "population_coverage"
 ) -> plt.figure:
     df = pd.DataFrame(
         {
