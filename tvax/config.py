@@ -70,6 +70,7 @@ class EpitopeGraphConfig(BaseModel):
     fasta_path: Path = None
     k: int = 9
     m: int = 1
+    n_target: int = 1
     affinity_cutoff: float = 0.638
     aligned: bool = False
     decycle: bool = True

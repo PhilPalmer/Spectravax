@@ -137,10 +137,9 @@ def add_population_coverage(kmers_dict: dict, config: EpitopeGraphConfig) -> dic
         # Save to file
         overlap_haplotypes.to_pickle(config.immune_scores_path)
 
-    for i in range(len(overlap_haplotypes.index)):
-        # TODO: Determine how the number of peptide-HLA average hits per person i.e. n_target is used
-        kmers_dict[overlap_haplotypes.index[i]]["population_coverage"] = sum(
-            overlap_haplotypes.iloc[i] * average_frequency.iloc[0]
+    for e in kmers_dict:
+        kmers_dict[e]["population_coverage"] = optivax_robust(
+            overlap_haplotypes, average_frequency, config.n_target, [e]
         )
 
     return kmers_dict
@@ -181,6 +180,35 @@ def add_hits_across_haplotypes(
                     temp_sum += int(df_binarized.at[pept, hap_type])
             df_overlap.at[pept, col] = temp_sum
     return df_overlap
+
+
+def optivax_robust(over, hap, thresh, set_of_peptides):
+    """
+    Evaluates the objective value for optivax robust
+    EvalVax-Robust over haplotypes!!!
+    """
+
+    def my_filter(my_input, thresh):
+        """
+        A simple function that acts as the indicator variable in the pseudocode
+        """
+        for index in range(len(my_input)):
+            if my_input[index] >= thresh:
+                my_input[index] = 1
+            else:
+                my_input[index] = 0
+        return my_input
+
+    num_of_haplotypes = len(over.columns)
+    total_overlays = np.zeros(num_of_haplotypes, dtype=int)
+
+    for pept in set_of_peptides:
+
+        total_overlays = total_overlays + np.array(over.loc[pept, :])
+
+    filtered_overlays = my_filter(total_overlays, thresh)
+
+    return np.sum(filtered_overlays * np.array(hap))
 
 
 def add_clade_weights(kmers_dict: dict, clades_dict: dict, N: int) -> dict:
