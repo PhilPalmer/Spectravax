@@ -11,10 +11,15 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from tvax.config import EpitopeGraphConfig
-from tvax.design import path_to_seq
-from tvax.graph import load_fasta, msa
+from tvax.graph import load_fasta
 from tvax.pca_protein_rank import pca_protein_rank, plot_pca
+from tvax.seq import msa, path_to_seq
 from scipy import stats
+
+
+"""
+Generate various plots to visualise the epitope graph and vaccine design(s).
+"""
 
 
 def plot_epitope_graph(

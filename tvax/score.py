@@ -1,9 +1,12 @@
 import mhcflurry
 import numpy as np
+import os
 import pandas as pd
 
 from sklearn.preprocessing import MinMaxScaler
+from tvax.config import EpitopeGraphConfig
 from tvax.pca_protein_rank import pca_protein_rank
+from tvax.seq import assign_clades
 
 """
 Calculate the total weighted score for each potential T-cell epitope (PTE).
@@ -19,12 +22,8 @@ def add_scores(
     # TODO: Do this in a more efficient way
     if config.weights.frequency:
         kmers_dict = add_frequency_score(kmers_dict, N)
-    if (
-        config.weights.processing
-        or config.weights.strong_mhc_binding
-        or config.weights.weak_mhc_binding
-    ):
-        kmers_dict = add_mhcflurry_scores(kmers_dict, config)
+    if config.weights.population_coverage:
+        kmers_dict = add_population_coverage(kmers_dict, config)
     kmers_dict = add_clade_weights(kmers_dict, clades_dict, N)
     kmers_dict = add_score(kmers_dict, config)
     return kmers_dict
@@ -60,91 +59,128 @@ def add_frequency_score(kmers_dict: dict, N: int) -> dict:
     return kmers_dict
 
 
-def add_mhcflurry_scores(kmers_dict: dict, config: EpitopeGraphConfig) -> dict:
+def add_population_coverage(kmers_dict: dict, config: EpitopeGraphConfig) -> dict:
     """
-    Add MHCflurry scores to k-mers.
+    Add the population coverage of each peptide
     """
-    # Define vars
-    agg_dict = {
-        "processing": "mean",
-        "strong_mhc_binding": "sum",
-        "weak_mhc_binding": "sum",
-    }
-    cached_scores = False
-    cols = ["processing", "strong_mhc_binding", "weak_mhc_binding"]
-    peptides = list(kmers_dict.keys())
 
-    # Check if the scores are already cached
+    # Load the data
+    peptides = list(kmers_dict.keys())
+    mhc_data = pd.DataFrame(peptides)
+    hla_alleles = pd.read_csv(config.mhc1_alleles_path, names=["allele"])
+    hap_freq = pd.read_pickle(config.hap_freq_mhc1_path)
+    # The haplotype frequency file considers White, Asians, and Black:  We just average them all out here.
+    # TODO: Add support for weighted averaging based on the target population
+    average_frequency = pd.DataFrame(index=["Average"], columns=hap_freq.columns)
+    average_frequency.loc["Average", :] = hap_freq.sum(axis=0) / len(hap_freq)
+
     if config.immune_scores_path and os.path.exists(config.immune_scores_path):
 
-        df = pd.read_csv(config.immune_scores_path)
-        # TODO: Check if the alleles and thresholds are the same
-        if set(df["peptide"]) == set(peptides):
-            cached_scores = True
+        overlap_haplotypes = pd.read_pickle(config.immune_scores_path)
 
-    # Only compute MHCflurry predictions if not already cached
-    if not cached_scores:
-        dfs = []
-        median_scaler = MedianScaler()
-        minmax_scaler = MinMaxScaler()
-        predictor = mhcflurry.Class1PresentationPredictor.load()
-        # TODO: Check if model needs to be downloaded !mhcflurry-downloads fetch models_class1_presentation
-
-        # Compute the scores for all peptides and alleles
-        for allele in config.alleles:
-            df = predictor.predict(
-                peptides, [allele], include_affinity_percentile=True, verbose=0
-            )
-            # Determine if the peptide binds to the MHC (based on the percentile threshold)
-            df["weak_mhc_binding"] = df["affinity_percentile"].apply(
-                lambda x: 1 if x < config.weak_percentile_threshold else 0
-            )
-            df["strong_mhc_binding"] = df["affinity_percentile"].apply(
-                lambda x: 1 if x < config.strong_percentile_threshold else 0
-            )
-            df = df.rename(
-                columns={"best_allele": "allele", "processing_score": "processing"}
-            )
-            dfs.append(df)
-
-        # Concatenate the dataframes
-        df = pd.concat(dfs, ignore_index=True)
-        # Aggregate the scores for each peptide across the alleles
-        df = df.groupby("peptide").agg(agg_dict).reset_index()
-        # Convert MHC binding to the fraction of bound alleles
-        df["weak_mhc_binding"] = df["weak_mhc_binding"] / len(config.alleles)
-        df["strong_mhc_binding"] = df["strong_mhc_binding"] / len(config.alleles)
-        # Scale the scores
-        df[["weak_mhc_binding", "strong_mhc_binding"]] = median_scaler.fit_transform(
-            df[["weak_mhc_binding", "strong_mhc_binding"]]
+    else:
+        # Predict the binding affinity
+        mhc_data["key"] = 0
+        hla_alleles["key"] = 0
+        pmhc_aff = mhc_data.merge(hla_alleles, how="outer")
+        pmhc_aff = pmhc_aff.drop(columns=["key"])
+        pmhc_aff = pmhc_aff.rename(columns={0: "peptide"})
+        predictions = predict_affinity(
+            peptides=pmhc_aff["peptide"].to_list(), alleles=pmhc_aff["allele"].to_list()
         )
-        df[["processing"]] = minmax_scaler.fit_transform(df[["processing"]])
+        pmhc_aff["affinity"] = predictions
+        pmhc_aff["transformed_affinity"] = pmhc_aff["affinity"].apply(
+            transform_affinity
+        )
+        pmhc_aff["loci"] = [x[:5] for x in pmhc_aff["allele"].values]
 
-        df.to_csv(config.immune_scores_path, index=False)
+        # Pivot the data
+        a74 = (
+            pmhc_aff.loc[pmhc_aff["allele"].str.contains("HLA-A74")]
+            .groupby("peptide")
+            .agg("mean")
+            .reset_index()
+        )  # ['mean', 'count'])
+        a74["loci"] = "HLA-A"
+        a74["allele"] = "HLA-A74"
+        c17 = (
+            pmhc_aff.loc[pmhc_aff["allele"].str.contains("HLA-C17")]
+            .groupby("peptide")
+            .agg("mean")
+            .reset_index()
+        )
+        c17["loci"] = "HLA-C"
+        c17["allele"] = "HLA-C17"
+        c18 = (
+            pmhc_aff.loc[pmhc_aff["allele"].str.contains("HLA-C18")]
+            .groupby("peptide")
+            .agg("mean")
+            .reset_index()
+        )
+        c18["loci"] = "HLA-C"
+        c18["allele"] = "HLA-C18"
+        pmhc_aff_pivot = pd.concat([pmhc_aff, a74, c17, c18], sort=False).pivot_table(
+            index="peptide",
+            columns=["loci", "allele"],
+            values="transformed_affinity",
+        )
 
-    # Update the k-mers dictionary with the scores
-    mhcflurry_dict = df[cols + ["peptide"]].set_index("peptide").to_dict()
-    for kmer in kmers_dict:
-        for col in cols:
-            kmers_dict[kmer][col] = mhcflurry_dict[col][kmer]
+        # Binarize the data to create hits
+        pmhc_aff_pivot = pmhc_aff_pivot.applymap(
+            lambda x: 1 if x > config.affinity_cutoff else 0
+        )
+        # Drop the loci from the columns and get the data down to a Single Index of alleles for the columns
+        pmhc_aff_pivot = pmhc_aff_pivot.droplevel("loci", axis=1)
+        # Run the add_hits_across_haplotypes function on the desired data.
+        overlap_haplotypes = add_hits_across_haplotypes(pmhc_aff_pivot, hap_freq)
+
+        # Save to file
+        overlap_haplotypes.to_pickle(config.immune_scores_path)
+
+    for i in range(len(overlap_haplotypes.index)):
+        # TODO: Determine how the number of peptide-HLA average hits per person i.e. n_target is used
+        kmers_dict[overlap_haplotypes.index[i]]["population_coverage"] = sum(
+            overlap_haplotypes.iloc[i] * average_frequency.iloc[0]
+        )
 
     return kmers_dict
 
 
-def assign_clades(seqs_dict: dict, config: EpitopeGraphConfig) -> dict:
+def predict_affinity(peptides: list, alleles: list) -> np.ndarray:
     """
-    Assign clades to sequences.
+    Predict the binding affinity of each peptide-HLA pair
     """
-    if config.equalise_clades:
-        # Perform multiple sequence alignment
-        msa_path = msa(config.fasta_path, config.msa_path)
-        # Assign clades to sequences
-        clades_dict, comp_df = pca_protein_rank(
-            msa_path, n_clusters=config.n_clusters, plot=False
-        )
-    else:
-        clades_dict = {seq_id: 1 for seq_id in seqs_dict}
-    return clades_dict
+    predictor = mhcflurry.Class1AffinityPredictor().load()
+    predictions = predictor.predict(peptides=peptides, alleles=alleles)
+    return predictions
+
+
+def transform_affinity(x: float, a_min: float = None, a_max: float = 50000) -> float:
+    """
+    Compute logistic-transformed binding affinity
+    """
+    x = np.clip(x, a_min=a_min, a_max=a_max)
+    return 1 - np.log(x) / np.log(a_max)
+
+
+def add_hits_across_haplotypes(
+    df_binarized: pd.DataFrame, df_hap_freq: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Add the hits across haplotypes
+    Convert a DataFrame of peptides vs alleles to a DataFrame of peptides vs haplotypes
+    with the number of alleles that are present in each haplotype
+    """
+    unique_columns = df_binarized.columns.unique()
+    df_overlap = pd.DataFrame(index=df_binarized.index, columns=df_hap_freq.columns)
+    for pept in df_overlap.index:
+        for col in df_overlap.columns:
+            temp_sum = 0
+            for hap_type in col:
+                if hap_type in unique_columns:
+                    temp_sum += int(df_binarized.at[pept, hap_type])
+            df_overlap.at[pept, col] = temp_sum
+    return df_overlap
 
 
 def add_clade_weights(kmers_dict: dict, clades_dict: dict, N: int) -> dict:
@@ -167,27 +203,3 @@ def add_clade_weights(kmers_dict: dict, clades_dict: dict, N: int) -> dict:
             [clade_weight_dict[clade] for clade in d["clades"]]
         )
     return kmers_dict
-
-
-class MedianScaler:
-    """
-    Scale the data to the range [min_value, max_value] using the median and standard deviation.
-    """
-
-    def __init__(self, min_value=0, max_value=1):
-        self.min_value = min_value
-        self.max_value = max_value
-
-    def fit(self, X):
-        self.median_ = np.median(X)
-        self.std_ = np.std(X)
-
-    def transform(self, X):
-        z_scores = (X - self.median_) / self.std_
-        scaled = (z_scores - np.min(z_scores)) / (np.max(z_scores) - np.min(z_scores))
-        scaled = scaled * (self.max_value - self.min_value) + self.min_value
-        return scaled
-
-    def fit_transform(self, X):
-        self.fit(X)
-        return self.transform(X)

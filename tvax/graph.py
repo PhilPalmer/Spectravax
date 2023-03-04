@@ -1,21 +1,18 @@
 #!/usr/bin/env python
 
 import networkx as nx
-import os
 import random
-import subprocess
 
-from Bio import SeqIO
 from itertools import product
-from pathlib import Path
 from tvax.config import EpitopeGraphConfig
-from tvax,score import add_scores, assign_clades
+from tvax.seq import load_fasta, kmerise, kmerise_simple, assign_clades
+from tvax.score import add_scores
 from typing import Optional
 
 
-#############################
-# Construct the epitope graph
-#############################
+"""
+Construct the potential T-cell epitope (PTE) graph.
+"""
 
 
 def build_epitope_graph(
@@ -89,54 +86,6 @@ def add_pos(G: nx.Graph, aligned: bool = False) -> nx.Graph:
     )
     nx.set_node_attributes(G, {"END": (end_pos, 0)}, "pos")
     return G
-
-
-############################
-# Utils to process sequences
-############################
-
-
-def load_fasta(fasta_path: Path) -> dict:
-    """
-    Load a FASTA file into a dictionary.
-    """
-    fasta_seqs = SeqIO.parse(fasta_path, "fasta")
-    seqs_dict = {seq.id: str(seq.seq) for seq in fasta_seqs}
-    return seqs_dict
-
-
-def kmerise_simple(seq, k):
-    """
-    Returns a list of k-mers of length k for a given string of amino acid sequence
-    """
-    return [seq[i : i + k] for i in range(len(seq) - k + 1)]
-
-
-def kmerise(seqs_dict: dict, clades_dict: dict, k: int = 9) -> dict:
-    """
-    Split sequences into k-mers and return a dictionary of k-mers with their clades and counts.
-    """
-    kmers_dict = {}
-    for seq_id, seq in seqs_dict.items():
-        clade = clades_dict[seq_id]
-        for i in range(len(seq) - k + 1):
-            kmer = seq[i : i + k]
-            if kmer in kmers_dict:
-                kmers_dict[kmer]["count"] += 1
-                if clade not in kmers_dict[kmer]["clades"]:
-                    kmers_dict[kmer]["clades"].append(clade)
-            else:
-                kmers_dict[kmer] = {"count": 1, "clades": [clade]}
-    return kmers_dict
-
-
-def msa(fasta_path: Path, msa_path: Path, overwrite: bool = False) -> Path:
-    """
-    Perform multiple sequence alignment.
-    """
-    if not os.path.exists(msa_path) or overwrite:
-        subprocess.run(f"mafft --auto {fasta_path} > {msa_path}", shell=True)
-    return msa_path
 
 
 ############################################

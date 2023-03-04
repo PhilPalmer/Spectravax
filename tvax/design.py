@@ -6,9 +6,9 @@ from tvax.config import EpitopeGraphConfig
 from tvax.graph import argmax, f, P
 
 
-#######################################################
-# Design: Wrapper function to design a vaccine cocktail
-#######################################################
+"""
+Design a vaccine (cocktail).
+"""
 
 
 def design_vaccines(G: nx.Graph, config: EpitopeGraphConfig) -> list:
@@ -151,16 +151,3 @@ def iterative_refinement(G: nx.Graph, Q: list, score: str = "score") -> list:
                 del d["F(e)"]
             if Q == prev_Q:
                 return Q
-
-
-########################################################
-# Process output from the vaccine design into a sequence
-########################################################
-
-
-def path_to_seq(path: list) -> str:
-    """
-    Returns an AA string for a list of epitopes (path)
-    """
-    seq = [path[0]] + [e[-1] for e in path[1:]]
-    return "".join(seq)

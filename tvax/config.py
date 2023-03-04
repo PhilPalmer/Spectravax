@@ -8,6 +8,11 @@ from typing import List, Optional
 from typing_extensions import Literal
 
 
+"""
+Config object for the epitope graph.
+"""
+
+
 def supported_alleles() -> List[str]:
     """
     Returns a list of all supported alleles by MHCflurry.
@@ -54,9 +59,7 @@ class Weights(BaseModel):
     """
 
     frequency: float = 1
-    processing: float = 1
-    weak_mhc_binding: float = 1
-    strong_mhc_binding: float = 1
+    population_coverage: float = 1
 
 
 class EpitopeGraphConfig(BaseModel):
@@ -67,16 +70,15 @@ class EpitopeGraphConfig(BaseModel):
     fasta_path: Path = None
     k: int = 9
     m: int = 1
-    weak_percentile_threshold: float = 2
-    strong_percentile_threshold: float = 0.5
+    affinity_cutoff: float = 0.638
     aligned: bool = False
     decycle: bool = True
     equalise_clades: bool = True
     n_clusters: Optional[int] = None
     edge_colour = "#BFBFBF"
     weights: Weights = Weights()
-    hla_path: Optional[Path] = None
-    iedb_path: Optional[Path] = None
+    mhc1_alleles_path: Path = None
+    hap_freq_mhc1_path: Path = None
     immune_scores_path: Optional[Path] = None
     msa_path: Optional[Path] = None
     # TODO: Add file path for list of alleles
