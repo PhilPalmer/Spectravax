@@ -5,6 +5,9 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import plotly.io as pio
 import seaborn as sns
 
 from Bio import SeqIO
@@ -159,6 +162,9 @@ def plot_scores(
             total = sum([score_arrays[j][i] for j in range(0, len(score_arrays))])
             for j in range(0, len(score_arrays)):
                 score_arrays[j][i] = score_arrays[j][i] / total * 100
+        # Compute the average contribution of each score to the total score
+        for i, score in enumerate(score_dict.keys()):
+            score_dict[score] = np.mean(score_arrays[i])
     labels = [format_title(score) for score in score_dict.keys()]
 
     # Plot stacked area
@@ -172,7 +178,7 @@ def plot_scores(
     ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
     ax.legend(loc="upper left", fontsize=14)
     ax.set_xlim([0, max(pos)])
-    return fig
+    return fig, score_dict
 
 
 def plot_corr(
@@ -239,3 +245,68 @@ def plot_vaccine_design_pca(
     # Plot the PCA results
     pca_plot = plot_pca(comp_df, plot_type=plot_type, interactive=interactive)
     return pca_plot, comp_df
+
+
+#######################
+# Parameter sweep plots
+#######################
+
+
+def plot_param_sweep_heatmap(
+    df: pd.DataFrame, x: str = "n_cluster", y: str = "pop_cov_weight", z: str = "av_cov"
+) -> go.Figure:
+    """
+    Plot a heatmap of the parameter sweep results.
+    """
+    fig = go.Figure(
+        data=go.Heatmap(
+            x=df[x],
+            y=df[y],
+            z=df[z],
+            colorscale="RdBu",
+            hovertemplate="Number of clusters: %{x}<br>Population coverage weight: %{y}<br>Population coverage: %{customdata[0]:.1f}%<br>Pathogen coverage: %{customdata[1]:.1f}%<br>Mean coverage: %{z:.1f}%",
+            customdata=df[["pop_cov", "path_cov"]].values,
+            colorbar=dict(title="Mean coverage (%)"),
+        )
+    )
+
+    fig.update_layout(
+        xaxis_title="Number of clusters", yaxis_title="Population coverage weight"
+    )
+
+    return fig
+
+
+def plot_param_sweep_scatter(
+    df: pd.DataFrame, x: str = "pop_cov", y: str = "path_cov", z: str = "av_cov"
+) -> px.imshow:
+    """
+    Plot a scatter plot of the parameter sweep results.
+    """
+
+    pio.templates.default = "plotly_white"
+
+    fig = px.scatter(
+        df,
+        x=x,
+        y=y,
+        color=z,
+        trendline="ols",
+        hover_data=["pop_cov_weight", "n_cluster"],
+        labels={
+            "pop_cov": "Population coverage (%)",
+            "path_cov": "Pathogen coverage (%)",
+            "av_cov": "Mean coverage (%)",
+            "n_cluster": "Number of clusters",
+            "pop_cov_weight": "Population coverage weight",
+        },
+        color_continuous_midpoint=50,
+        # color_continuous_scale="RdBu",
+    )
+
+    fig.update_layout(
+        xaxis_title_font_size=16,
+        yaxis_title_font_size=16,
+    )
+
+    return fig
