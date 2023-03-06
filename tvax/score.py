@@ -63,22 +63,46 @@ def add_population_coverage(kmers_dict: dict, config: EpitopeGraphConfig) -> dic
     """
     Add the population coverage of each peptide
     """
-
     # Load the data
     peptides = list(kmers_dict.keys())
-    mhc_data = pd.DataFrame(peptides)
-    hla_alleles = pd.read_csv(config.mhc1_alleles_path, names=["allele"])
+    hap_freq, average_frequency = load_haplotypes(config)
+    overlap_haplotypes = load_overlap(peptides, hap_freq, config)
+
+    # Calculate and save the population coverage for each peptide
+    for e in kmers_dict:
+        kmers_dict[e]["population_coverage"] = optivax_robust(
+            overlap_haplotypes, average_frequency, config.n_target, [e]
+        )
+
+    return kmers_dict
+
+
+def load_haplotypes(config: EpitopeGraphConfig) -> tuple:
+    """
+    Load the haplotype frequency data
+    """
     hap_freq = pd.read_pickle(config.hap_freq_mhc1_path)
     # The haplotype frequency file considers White, Asians, and Black:  We just average them all out here.
     # TODO: Add support for weighted averaging based on the target population
     average_frequency = pd.DataFrame(index=["Average"], columns=hap_freq.columns)
     average_frequency.loc["Average", :] = hap_freq.sum(axis=0) / len(hap_freq)
+    return hap_freq, average_frequency
 
+
+def load_overlap(peptides, hap_freq, config: EpitopeGraphConfig):
+    """
+    Load the overlap between peptides and haplotypes
+    """
     if config.immune_scores_path and os.path.exists(config.immune_scores_path):
 
         overlap_haplotypes = pd.read_pickle(config.immune_scores_path)
 
     else:
+
+        # Load the data
+        mhc_data = pd.DataFrame(peptides)
+        hla_alleles = pd.read_csv(config.mhc1_alleles_path, names=["allele"])
+
         # Predict the binding affinity
         mhc_data["key"] = 0
         hla_alleles["key"] = 0
@@ -137,12 +161,7 @@ def add_population_coverage(kmers_dict: dict, config: EpitopeGraphConfig) -> dic
         # Save to file
         overlap_haplotypes.to_pickle(config.immune_scores_path)
 
-    for e in kmers_dict:
-        kmers_dict[e]["population_coverage"] = optivax_robust(
-            overlap_haplotypes, average_frequency, config.n_target, [e]
-        )
-
-    return kmers_dict
+    return overlap_haplotypes
 
 
 def predict_affinity(peptides: list, alleles: list) -> np.ndarray:
@@ -188,7 +207,7 @@ def optivax_robust(over, hap, thresh, set_of_peptides):
     EvalVax-Robust over haplotypes!!!
     """
 
-    def my_filter(my_input, thresh):
+    def _my_filter(my_input, thresh):
         """
         A simple function that acts as the indicator variable in the pseudocode
         """
@@ -206,7 +225,7 @@ def optivax_robust(over, hap, thresh, set_of_peptides):
 
         total_overlays = total_overlays + np.array(over.loc[pept, :])
 
-    filtered_overlays = my_filter(total_overlays, thresh)
+    filtered_overlays = _my_filter(total_overlays, thresh)
 
     return np.sum(filtered_overlays * np.array(hap))
 
