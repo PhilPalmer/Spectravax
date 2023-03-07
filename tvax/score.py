@@ -148,6 +148,7 @@ def load_overlap(peptides, hap_freq, config: EpitopeGraphConfig):
             columns=["loci", "allele"],
             values="transformed_affinity",
         )
+        pmhc_aff_pivot.to_pickle(config.raw_affinity_path)
 
         # Binarize the data to create hits
         pmhc_aff_pivot = pmhc_aff_pivot.applymap(

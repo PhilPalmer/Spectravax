@@ -13,6 +13,7 @@ import seaborn as sns
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
+from matplotlib import cm
 from tvax.config import EpitopeGraphConfig, Weights
 from tvax.graph import load_fasta
 from tvax.pca_protein_rank import pca_protein_rank, plot_pca
@@ -245,6 +246,113 @@ def plot_vaccine_design_pca(
     # Plot the PCA results
     pca_plot = plot_pca(comp_df, plot_type=plot_type, interactive=interactive)
     return pca_plot, comp_df
+
+
+#######################
+# Plot MHC binding heatmap
+#######################
+
+
+def plot_mhc_heatmap(
+    path: list,
+    config: EpitopeGraphConfig,
+    alleles: list = None,
+    hla_loci: list = ["HLA-A", "HLA-B", "HLA-C"],
+    hspace: float = 0.05,
+):
+    """ """
+    # Load and process the MHC binding data
+    pmhc_aff_pivot = pd.read_pickle(config.raw_affinity_path)
+    pmhc_aff_pivot = pmhc_aff_pivot.applymap(
+        lambda x: 1 if x > config.affinity_cutoff else 0
+    )
+    pos = [i + 1 for i in range(len(path[0]))]
+    df = pmhc_aff_pivot.loc[path[0], :].T
+    df.columns = pos
+    # Reshape dataframe to long format
+    df = df.reset_index().melt(
+        id_vars=["loci", "allele"], var_name="position", value_name="binding"
+    )
+    # Filter to only include the specified alleles
+    if alleles:
+        df = df.loc[df["allele"].isin(alleles), :]
+    # Filter to only keep the specified HLA loci
+    df = df.loc[df["loci"].isin(hla_loci), :]
+
+    # Generate dataframe of number of peptide-HLA hits per allele
+    if not alleles:
+        alleles = df["allele"].unique().tolist()
+    peptide_hits_df = df.loc[df["binding"] == 1, :]
+    peptide_hits_df = (
+        peptide_hits_df.groupby(["allele"])
+        .size()
+        .reset_index(name="n_peptide_hla_hits")
+    )
+    # Add missing alleles
+    missing_alleles = [a for a in alleles if a not in peptide_hits_df["allele"].values]
+    missing_df = pd.DataFrame(
+        {"allele": missing_alleles, "n_peptide_hla_hits": [0] * len(missing_alleles)}
+    )
+    # Concat and reset index
+    peptide_hits_df = pd.concat([peptide_hits_df, missing_df], axis=0, sort=False)
+    # Sort by allele
+    peptide_hits_df = peptide_hits_df.sort_values(by="allele").reset_index(drop=True)
+
+    # Update the positions to extend to the length of the k-mer
+    k_minus_1 = config.k - 1
+    df["position"] = pd.to_numeric(df["position"])
+    start_df = df.loc[df["position"] <= k_minus_1, :].copy()
+    start_df["binding"] = 0
+    df["position"] += k_minus_1
+    df = pd.concat([start_df, df], sort=False)
+
+    # Update the binding to extend to the length of the k-mer
+    df["binding"] = pd.to_numeric(df["binding"])
+    previous_binding_cols = [f"binding_previous{i+1}" for i in range(k_minus_1)]
+    for i, col in enumerate(previous_binding_cols):
+        df[col] = df.groupby(["loci", "allele"])["binding"].transform(
+            lambda x: x.shift(-(i + 1)).fillna(0)
+        )
+    df["binding"] = df[["binding"] + previous_binding_cols].max(axis=1)
+    df = df.drop(columns=previous_binding_cols)
+
+    # Plot heatmap of all loci on the same plot with same color scale
+    # fig, ax = plt.subplots(figsize=(25, 15))
+    # sns.heatmap(df.pivot_table(values='binding', index=['loci', 'allele'], columns=['position']), cmap="Blues", ax=ax, cbar=False)
+    # ax.set_xlabel('Amino acid position', fontsize=14)
+    # ax.set_ylabel('MHC allele', fontsize=14)
+
+    # Define vars
+    n_loci = len(df["loci"].unique())
+    colors = ["Reds", "Greens", "Blues"]
+
+    # Create subplots for each loci, share the x-axis
+    fig, axes = plt.subplots(n_loci, 1, figsize=(25, 15), sharex=True)
+    # Reduce the space between the subplots on the y-axis
+    fig.subplots_adjust(hspace=hspace)
+
+    # Plot a heatmap for each loci
+    for i, loci in enumerate(df["loci"].unique()):
+        cmap = cm.get_cmap(colors[i], 2)
+        cmap.set_under(color="white")
+        sns.heatmap(
+            df.loc[df["loci"] == loci, :].pivot_table(
+                values="binding", index=["allele"], columns=["position"]
+            ),
+            cmap=cmap,
+            ax=axes[i],
+            cbar=False,
+            vmin=0.1,
+        )
+        axes[i].tick_params(axis="both", which="both", length=0)
+        axes[i].set_xlabel("")
+        axes[i].set_ylabel("")
+        if i == n_loci - 1:
+            axes[i].set_xlabel("Amino acid position", fontsize=16)
+        if i == 1:
+            axes[i].set_ylabel("MHC allele", fontsize=16)
+
+    return fig, peptide_hits_df
 
 
 #######################

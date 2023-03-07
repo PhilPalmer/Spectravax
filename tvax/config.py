@@ -81,6 +81,7 @@ class EpitopeGraphConfig(BaseModel):
     mhc1_alleles_path: Path = None
     hap_freq_mhc1_path: Path = None
     immune_scores_path: Optional[Path] = None
+    raw_affinity_path: Optional[Path] = None
     msa_path: Optional[Path] = None
     # TODO: Add file path for list of alleles
     alleles: List[Literal[tuple(supported_alleles())]] = default_alleles
