@@ -30,7 +30,7 @@ def compute_population_coverage(
     peptides: list, n_target: int, config: EpitopeGraphConfig
 ) -> float:
     """
-    Computes the population coverage of a vaccine design
+    Computes the population coverage of a vaccine design i.e. the fraction of the population that is predicted to have ≥ n peptide-HLA hits produced by the vaccine
     """
     hap_freq, average_frequency = load_haplotypes(config)
     overlap_haplotypes = load_overlap(peptides, hap_freq, config)
@@ -41,7 +41,7 @@ def compute_pathogen_coverage(
     vaccine_design: list, config: EpitopeGraphConfig
 ) -> float:
     """
-    Computes the pathogen coverage of a vaccine design
+    Computes the pathogen coverage of a vaccine design i.e. the fraction of kmers in the pathogen that are covered by the vaccine design
     """
     seqs_dict = load_fasta(config.fasta_path)
     n_cov = 0
@@ -51,3 +51,18 @@ def compute_pathogen_coverage(
         n_cov += sum([1 for kmer in kmers if kmer in vaccine_design])
         n_total += len(kmers)
     return n_cov / n_total
+
+
+def compute_eigen_dist(
+    comp_df: pd.DataFrame,
+    vaccine_id: str = "vaccine_design",
+    pca_cols: list = ["PCA1", "PCA2", "PCA3"],
+) -> float:
+    """
+    Compute the average distance between the vaccine design and the other sequences in the PCA space
+    Assuming a normal distribution, this is the number of standard deviations away from the mean of the other sequences
+    """
+    vac_pca_scores = comp_df[comp_df["Sequence_id"] == vaccine_id][pca_cols].to_numpy()
+    seq_pca_scores = comp_df[comp_df["Sequence_id"] != vaccine_id][pca_cols].to_numpy()
+    eigen_dists = np.linalg.norm(vac_pca_scores - seq_pca_scores, axis=1)
+    return np.mean(eigen_dists)
