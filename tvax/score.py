@@ -2,6 +2,7 @@ import mhcflurry
 import numpy as np
 import os
 import pandas as pd
+import subprocess
 
 from sklearn.preprocessing import MinMaxScaler
 from tvax.config import EpitopeGraphConfig
@@ -22,8 +23,10 @@ def add_scores(
     # TODO: Do this in a more efficient way
     if config.weights.frequency:
         kmers_dict = add_frequency_score(kmers_dict, N)
-    if config.weights.population_coverage:
-        kmers_dict = add_population_coverage(kmers_dict, config)
+    if config.weights.population_coverage_mhc1:
+        kmers_dict = add_population_coverage(kmers_dict, config, "mhc1")
+    if config.weights.population_coverage_mhc2:
+        kmers_dict = add_population_coverage(kmers_dict, config, "mhc2")
     kmers_dict = add_clade_weights(kmers_dict, clades_dict, N)
     kmers_dict = add_score(kmers_dict, config)
     return kmers_dict
@@ -37,7 +40,7 @@ def add_score(kmers_dict: dict, config: EpitopeGraphConfig) -> dict:
     # TODO: Check if dividing by the sum of the weights is necessary
     for kmer in kmers_dict:
         kmers_dict[kmer]["score"] = sum(
-            [kmers_dict[kmer][name] * val for name, val in config.weights]
+            [kmers_dict[kmer][name] * val for name, val in config.weights if val > 0]
         )
         # Multiple the total score by the clade weight
         kmers_dict[kmer]["score"] *= kmers_dict[kmer]["clade_weight"]
@@ -59,29 +62,36 @@ def add_frequency_score(kmers_dict: dict, N: int) -> dict:
     return kmers_dict
 
 
-def add_population_coverage(kmers_dict: dict, config: EpitopeGraphConfig) -> dict:
+def add_population_coverage(
+    kmers_dict: dict,
+    config: EpitopeGraphConfig,
+    mhc_type: str = "mhc1",
+) -> dict:
     """
     Add the population coverage of each peptide
     """
     # Load the data
     peptides = list(kmers_dict.keys())
-    hap_freq, average_frequency = load_haplotypes(config)
-    overlap_haplotypes = load_overlap(peptides, hap_freq, config)
+    hap_freq_path = (
+        config.hap_freq_mhc1_path if mhc_type == "mhc1" else config.hap_freq_mhc2_path
+    )
+    hap_freq, average_frequency = load_haplotypes(hap_freq_path)
+    overlap_haplotypes = load_overlap(peptides, hap_freq, config, mhc_type)
 
     # Calculate and save the population coverage for each peptide
     for e in kmers_dict:
-        kmers_dict[e]["population_coverage"] = optivax_robust(
+        kmers_dict[e][f"population_coverage_{mhc_type}"] = optivax_robust(
             overlap_haplotypes, average_frequency, config.n_target, [e]
         )
 
     return kmers_dict
 
 
-def load_haplotypes(config: EpitopeGraphConfig) -> tuple:
+def load_haplotypes(hap_freq_path: str) -> tuple:
     """
     Load the haplotype frequency data
     """
-    hap_freq = pd.read_pickle(config.hap_freq_mhc1_path)
+    hap_freq = pd.read_pickle(hap_freq_path)
     # The haplotype frequency file considers White, Asians, and Black:  We just average them all out here.
     # TODO: Add support for weighted averaging based on the target population
     average_frequency = pd.DataFrame(index=["Average"], columns=hap_freq.columns)
@@ -89,70 +99,44 @@ def load_haplotypes(config: EpitopeGraphConfig) -> tuple:
     return hap_freq, average_frequency
 
 
-def load_overlap(peptides, hap_freq, config: EpitopeGraphConfig):
+def load_overlap(peptides, hap_freq, config: EpitopeGraphConfig, mhc_type: str):
     """
     Load the overlap between peptides and haplotypes
     """
-    if config.immune_scores_path and os.path.exists(config.immune_scores_path):
+    if mhc_type == "mhc1":
+        alleles_path = config.mhc1_alleles_path
+        raw_affinity_path = config.raw_affinity_mhc1_path
+        immune_scores_path = config.immune_scores_mhc1_path
+        affinity_cutoff = config.affinity_cutoff_mhc1
+    else:
+        alleles_path = config.mhc2_alleles_path
+        raw_affinity_path = config.raw_affinity_mhc2_path
+        immune_scores_path = config.immune_scores_mhc2_path
+        affinity_cutoff = config.affinity_cutoff_mhc2
 
-        overlap_haplotypes = pd.read_pickle(config.immune_scores_path)
+    if immune_scores_path and os.path.exists(immune_scores_path):
+
+        overlap_haplotypes = pd.read_pickle(immune_scores_path)
 
     else:
 
         # Load the data
-        mhc_data = pd.DataFrame(peptides)
-        hla_alleles = pd.read_csv(config.mhc1_alleles_path, names=["allele"])
+        peptides = pd.DataFrame({"peptide": peptides})
+        hla_alleles = pd.read_csv(alleles_path, names=["allele"])
 
         # Predict the binding affinity
-        mhc_data["key"] = 0
-        hla_alleles["key"] = 0
-        pmhc_aff = mhc_data.merge(hla_alleles, how="outer")
-        pmhc_aff = pmhc_aff.drop(columns=["key"])
-        pmhc_aff = pmhc_aff.rename(columns={0: "peptide"})
-        predictions = predict_affinity(
-            peptides=pmhc_aff["peptide"].to_list(), alleles=pmhc_aff["allele"].to_list()
-        )
-        pmhc_aff["affinity"] = predictions
-        pmhc_aff["transformed_affinity"] = pmhc_aff["affinity"].apply(
-            transform_affinity
-        )
-        pmhc_aff["loci"] = [x[:5] for x in pmhc_aff["allele"].values]
-
-        # Pivot the data
-        a74 = (
-            pmhc_aff.loc[pmhc_aff["allele"].str.contains("HLA-A74")]
-            .groupby("peptide")
-            .agg("mean")
-            .reset_index()
-        )  # ['mean', 'count'])
-        a74["loci"] = "HLA-A"
-        a74["allele"] = "HLA-A74"
-        c17 = (
-            pmhc_aff.loc[pmhc_aff["allele"].str.contains("HLA-C17")]
-            .groupby("peptide")
-            .agg("mean")
-            .reset_index()
-        )
-        c17["loci"] = "HLA-C"
-        c17["allele"] = "HLA-C17"
-        c18 = (
-            pmhc_aff.loc[pmhc_aff["allele"].str.contains("HLA-C18")]
-            .groupby("peptide")
-            .agg("mean")
-            .reset_index()
-        )
-        c18["loci"] = "HLA-C"
-        c18["allele"] = "HLA-C18"
-        pmhc_aff_pivot = pd.concat([pmhc_aff, a74, c17, c18], sort=False).pivot_table(
-            index="peptide",
-            columns=["loci", "allele"],
-            values="transformed_affinity",
-        )
-        pmhc_aff_pivot.to_pickle(config.raw_affinity_path)
+        if mhc_type == "mhc1":
+            pmhc_aff_pivot = predict_affinity_mhcflurry(
+                peptides, hla_alleles, raw_affinity_path
+            )
+        else:
+            pmhc_aff_pivot = predict_affinity_netmhcpan(
+                peptides, hla_alleles, raw_affinity_path, config
+            )
 
         # Binarize the data to create hits
         pmhc_aff_pivot = pmhc_aff_pivot.applymap(
-            lambda x: 1 if x > config.affinity_cutoff else 0
+            lambda x: 1 if x > affinity_cutoff else 0
         )
         # Drop the loci from the columns and get the data down to a Single Index of alleles for the columns
         pmhc_aff_pivot = pmhc_aff_pivot.droplevel("loci", axis=1)
@@ -160,18 +144,145 @@ def load_overlap(peptides, hap_freq, config: EpitopeGraphConfig):
         overlap_haplotypes = add_hits_across_haplotypes(pmhc_aff_pivot, hap_freq)
 
         # Save to file
-        overlap_haplotypes.to_pickle(config.immune_scores_path)
+        overlap_haplotypes.to_pickle(immune_scores_path)
 
     return overlap_haplotypes
 
 
-def predict_affinity(peptides: list, alleles: list) -> np.ndarray:
+def predict_affinity_mhcflurry(
+    peptides: pd.DataFrame,
+    hla_alleles: pd.DataFrame,
+    raw_affinity_path: str,
+):
     """
-    Predict the binding affinity of each peptide-HLA pair
+    Predict the binding affinity of each peptide-HLA pair using MHCflurry
     """
     predictor = mhcflurry.Class1AffinityPredictor().load()
-    predictions = predictor.predict(peptides=peptides, alleles=alleles)
-    return predictions
+    peptides["key"] = 0
+    hla_alleles["key"] = 0
+    pmhc_aff = peptides.merge(hla_alleles, how="outer")
+    pmhc_aff = pmhc_aff.drop(columns=["key"])
+    predictions = predictor.predict(
+        peptides=pmhc_aff["peptide"].to_list(), alleles=pmhc_aff["allele"].to_list()
+    )
+    pmhc_aff["affinity"] = predictions
+    pmhc_aff["transformed_affinity"] = pmhc_aff["affinity"].apply(transform_affinity)
+    pmhc_aff["loci"] = [x[:5] for x in pmhc_aff["allele"].values]
+
+    # Pivot the data
+    a74 = (
+        pmhc_aff.loc[pmhc_aff["allele"].str.contains("HLA-A74")]
+        .groupby("peptide")
+        .agg("mean")
+        .reset_index()
+    )  # ['mean', 'count'])
+    a74["loci"] = "HLA-A"
+    a74["allele"] = "HLA-A74"
+    c17 = (
+        pmhc_aff.loc[pmhc_aff["allele"].str.contains("HLA-C17")]
+        .groupby("peptide")
+        .agg("mean")
+        .reset_index()
+    )
+    c17["loci"] = "HLA-C"
+    c17["allele"] = "HLA-C17"
+    c18 = (
+        pmhc_aff.loc[pmhc_aff["allele"].str.contains("HLA-C18")]
+        .groupby("peptide")
+        .agg("mean")
+        .reset_index()
+    )
+    c18["loci"] = "HLA-C"
+    c18["allele"] = "HLA-C18"
+    pmhc_aff_pivot = pd.concat([pmhc_aff, a74, c17, c18], sort=False).pivot_table(
+        index="peptide",
+        columns=["loci", "allele"],
+        values="transformed_affinity",
+    )
+    pmhc_aff_pivot.to_pickle(raw_affinity_path)
+    return pmhc_aff_pivot
+
+
+def predict_affinity_netmhcpan(
+    peptides: pd.DataFrame,
+    hla_alleles: pd.DataFrame,
+    raw_affinity_path: str,
+    config: EpitopeGraphConfig,
+) -> pd.DataFrame:
+    """
+    Predict the binding affinity of each peptide-HLA pair using NetMHCpan4.1
+    """
+    # Define vars
+    preds_dir = f"{config.results_dir}/MHC_Binding/netmhcii_preds"
+
+    # Create a file with the peptides.
+    peptides.to_csv(config.peptides_path, index=False, header=False)
+
+    # Create commands for running NetMHCIIpan4.1 (MHC-II).
+    cmd_template = (
+        "-inptype 1 -f {peptides_path} -a {allele}  -BA -xls -xlsfile {allele_path}"
+    )
+    cmds = []
+    for allele in hla_alleles["allele"].values:
+        cmd = cmd_template.format(
+            peptides_path=config.peptides_path,
+            allele=allele.replace("*", "_").replace(":", ""),
+            allele_path=f"{preds_dir}/{allele.replace('*', '_').replace(':', '')}_preds.xls",
+        )
+        cmds.append(cmd)
+
+    args_path = f"{config.results_dir}/MHC_Binding/netmhc_class2_args.txt"
+    with open(args_path, "w") as f:
+        for cmd in cmds:
+            f.write(cmd + "\n")
+
+    # Create directory for results if it doesn't exist
+    if not os.path.exists(preds_dir):
+        os.makedirs(preds_dir)
+
+    netmhcpan_cmd = f"cat {args_path} | xargs -P 70 -d '\n' -n {config.n_threads} {config.netmhcpanii_cmd}"
+    subprocess.call(netmhcpan_cmd, shell=True)
+
+    # Load MHC-II binding predictions
+    dfs = []
+    for allele in hla_alleles["allele"].values:
+        try:
+            df = pd.read_csv(
+                f"{preds_dir}/{allele.replace('*', '_').replace(':', '')}_preds.xls",
+                delimiter="\t",
+                skiprows=[0],
+            )
+        except:
+            continue
+        df["allele"] = allele
+        df = df.drop(columns=["Pos", "ID", "Ave", "NB"])
+        dfs.append(df)
+
+    pmhc_aff = pd.concat(dfs)
+    pmhc_aff = pmhc_aff.rename(columns={"Peptide": "peptide"})
+    pmhc_aff["loci"] = [
+        x[:4] if x[:3] == "DRB" else x[:6] for x in pmhc_aff["allele"].values
+    ]
+    pmhc_aff["transformed_affinity"] = pmhc_aff["nM"].apply(transform_affinity)
+
+    df = pmhc_aff
+    df2 = df.groupby(["peptide", "loci"]).count().reset_index()[["peptide", "loci"]]
+    df2["allele"] = "unknown"
+    df2["Score"] = 0.0
+    df2["Rank"] = 0.0
+    df2["Score_BA"] = 0.0
+    df2["Rank_BA"] = 0.0
+    df2["nM"] = 0.0
+    df2["transformed_affinity"] = 0.0
+
+    pmhc_aff_pivot = pd.concat([df, df2], sort=False).pivot_table(
+        index="peptide",
+        columns=["loci", "allele"],
+        values="transformed_affinity",
+    )
+    pmhc_aff_pivot.to_pickle(raw_affinity_path, protocol=2)
+
+    return pmhc_aff_pivot
 
 
 def transform_affinity(x: float, a_min: float = None, a_max: float = 50000) -> float:

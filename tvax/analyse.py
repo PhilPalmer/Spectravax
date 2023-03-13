@@ -31,7 +31,7 @@ def run_parameter_sweep(
 
         for n in n_clusters:
             for weight in pop_cov_weights:
-                config.weights = Weights(frequency=1, population_coverage=weight)
+                config.weights = Weights(frequency=1, population_coverage_mhc1=weight)
                 config.n_clusters = n
                 epitope_graph = build_epitope_graph(config)
                 vaccine_designs = design_vaccines(epitope_graph, config)

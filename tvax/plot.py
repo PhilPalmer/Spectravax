@@ -4,6 +4,7 @@ import igviz as ig
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+import os
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -183,7 +184,7 @@ def plot_scores(
 
 
 def plot_corr(
-    G: nx.Graph, x: str = "frequency", y: str = "population_coverage"
+    G: nx.Graph, x: str = "frequency", y: str = "population_coverage_mhc1"
 ) -> plt.figure:
     df = pd.DataFrame(
         {
@@ -220,9 +221,9 @@ def plot_vaccine_design_pca(
     :return: Plot of the PCA of the vaccine design.
     """
     # Define vars
-    fasta_base = ".".join(str(config.fasta_path).split(".")[:-1])
-    fasta_path = fasta_base + "_designs.fasta"
-    msa_path = fasta_base + "_designs.msa"
+    base_path = f"{config.results_dir}/MSA/{fasta_base}_designs"
+    fasta_path = f"{base_path}.fasta"
+    msa_path = f"{base_path}.msa"
     n_clusters = n_clusters if n_clusters else config.n_clusters
     # Load the sequences
     seqs_dict = load_fasta(config.fasta_path)
@@ -262,10 +263,10 @@ def plot_mhc_heatmap(
 ):
     """ """
     # Load and process the MHC binding data
-    pmhc_aff_pivot = pd.read_pickle(config.raw_affinity_path)
-    pmhc_aff_pivot = pmhc_aff_pivot.applymap(
-        lambda x: 1 if x > config.affinity_cutoff else 0
-    )
+    # TODO: Add support for MHC-II binding data
+    affinity_cutoff = config.affinity_cutoff_mhc1
+    pmhc_aff_pivot = pd.read_pickle(config.raw_affinity_mhc1_path)
+    pmhc_aff_pivot = pmhc_aff_pivot.applymap(lambda x: 1 if x > affinity_cutoff else 0)
     pos = [i + 1 for i in range(len(path[0]))]
     df = pmhc_aff_pivot.loc[path[0], :].T
     df.columns = pos
