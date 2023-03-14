@@ -40,9 +40,11 @@ def build_epitope_graph(
     # Add nodes
     for kmer, attrs in kmers_dict.items():
         G.add_node(kmer, **attrs)
-    # Add edges - where the last k−1 characters of ea match the first k−1 characters of eb
+    # Add edges between overlapping k-mers of any length
+    # where the last k−1 characters of ea match the first k−1 characters of eb
     for ea, eb in product(G.nodes(), G.nodes()):
-        if not G.has_edge(ea, eb) and ea[1:] == eb[:-1]:
+        shortest_k = min(len(ea), len(eb))
+        if not G.has_edge(ea, eb) and ea[-shortest_k + 1 :] == eb[: shortest_k - 1]:
             G.add_edge(ea, eb, colour=config.edge_colour)
     # Decycle graph
     if config.decycle:
@@ -196,7 +198,7 @@ def weak_edge_in_cycle(G, cycle):
     :param cycle: List of epitope strings on path that is a cycle
     :returns: Tuple for the weak edge containing the two epitope strings
     """
-    edges = kmerise_simple(cycle, k=2)
+    edges = kmerise_simple(cycle, k=[2])
     values = []
     for ea, eb in edges:
         # v is heuristic “value” of edge

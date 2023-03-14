@@ -265,7 +265,10 @@ def plot_mhc_heatmap(
     # Load and process the MHC binding data
     # TODO: Add support for MHC-II binding data
     affinity_cutoff = config.affinity_cutoff_mhc1
-    pmhc_aff_pivot = pd.read_pickle(config.raw_affinity_mhc1_path)
+    raw_affinity_path = config.raw_affinity_mhc1_path
+    k = config.k[0]
+
+    pmhc_aff_pivot = pd.read_pickle(raw_affinity_path)
     pmhc_aff_pivot = pmhc_aff_pivot.applymap(lambda x: 1 if x > affinity_cutoff else 0)
     pos = [i + 1 for i in range(len(path[0]))]
     df = pmhc_aff_pivot.loc[path[0], :].T
@@ -300,7 +303,7 @@ def plot_mhc_heatmap(
     peptide_hits_df = peptide_hits_df.sort_values(by="allele").reset_index(drop=True)
 
     # Update the positions to extend to the length of the k-mer
-    k_minus_1 = config.k - 1
+    k_minus_1 = k - 1
     df["position"] = pd.to_numeric(df["position"])
     start_df = df.loc[df["position"] <= k_minus_1, :].copy()
     start_df["binding"] = 0

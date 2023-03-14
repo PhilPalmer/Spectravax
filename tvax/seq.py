@@ -22,28 +22,29 @@ def load_fasta(fasta_path: Path) -> dict:
     return seqs_dict
 
 
-def kmerise_simple(seq, k):
+def kmerise_simple(seq: str, ks: list = [9]):
     """
-    Returns a list of k-mers of length k for a given string of amino acid sequence
+    Returns a list of k-mers of lengths k for a given string of amino acid sequence
     """
-    return [seq[i : i + k] for i in range(len(seq) - k + 1)]
+    return [seq[i : i + k] for k in ks for i in range(len(seq) - k + 1)]
 
 
-def kmerise(seqs_dict: dict, clades_dict: dict, k: int = 9) -> dict:
+def kmerise(seqs_dict: dict, clades_dict: dict, ks: list = [9]) -> dict:
     """
     Split sequences into k-mers and return a dictionary of k-mers with their clades and counts.
     """
     kmers_dict = {}
     for seq_id, seq in seqs_dict.items():
         clade = clades_dict[seq_id]
-        for i in range(len(seq) - k + 1):
-            kmer = seq[i : i + k]
-            if kmer in kmers_dict:
-                kmers_dict[kmer]["count"] += 1
-                if clade not in kmers_dict[kmer]["clades"]:
-                    kmers_dict[kmer]["clades"].append(clade)
-            else:
-                kmers_dict[kmer] = {"count": 1, "clades": [clade]}
+        for k in ks:
+            for i in range(len(seq) - k + 1):
+                kmer = seq[i : i + k]
+                if kmer in kmers_dict:
+                    kmers_dict[kmer]["count"] += 1
+                    if clade not in kmers_dict[kmer]["clades"]:
+                        kmers_dict[kmer]["clades"].append(clade)
+                else:
+                    kmers_dict[kmer] = {"count": 1, "clades": [clade]}
     return kmers_dict
 
 
