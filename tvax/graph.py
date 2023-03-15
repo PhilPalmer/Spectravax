@@ -198,7 +198,7 @@ def weak_edge_in_cycle(G, cycle):
     :param cycle: List of epitope strings on path that is a cycle
     :returns: Tuple for the weak edge containing the two epitope strings
     """
-    edges = kmerise_simple(cycle, k=[2])
+    edges = kmerise_simple(cycle, ks=[2])
     values = []
     for ea, eb in edges:
         # v is heuristic “value” of edge
