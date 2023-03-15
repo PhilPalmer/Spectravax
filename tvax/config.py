@@ -84,10 +84,13 @@ class EpitopeGraphConfig(BaseModel):
     n_threads: int = 1
     edge_colour = "#BFBFBF"
     weights: Weights = Weights()
+    # TODO: Use the specified affinity predictors
     mhc_affinity_predictors: Literal["mhcflurry", "netmhcpan"] = [
         "mhcflurry",
         "netmhcpan",
     ]
+    # TODO: Download the human proteome from UniProt and store it locally
+    human_proteome_path: Path = None
     mhc1_alleles_path: Path = None
     mhc2_alleles_path: Path = None
     hap_freq_mhc1_path: Path = None

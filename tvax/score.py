@@ -6,8 +6,7 @@ import subprocess
 
 from sklearn.preprocessing import MinMaxScaler
 from tvax.config import EpitopeGraphConfig
-from tvax.pca_protein_rank import pca_protein_rank
-from tvax.seq import assign_clades
+from tvax.seq import load_fasta, kmerise_simple
 
 """
 Calculate the total weighted score for each potential T-cell epitope (PTE).
@@ -29,6 +28,10 @@ def add_scores(
         kmers_dict = add_population_coverage(kmers_dict, config, "mhc2")
     kmers_dict = add_clade_weights(kmers_dict, clades_dict, N)
     kmers_dict = add_score(kmers_dict, config)
+    if config.human_proteome_path:
+        kmers_dict = zero_undesired_peptides(
+            kmers_dict, config.human_proteome_path, config.k
+        )
     return kmers_dict
 
 
@@ -361,4 +364,23 @@ def add_clade_weights(kmers_dict: dict, clades_dict: dict, N: int) -> dict:
         kmers_dict[kmer]["clade_weight"] = np.mean(
             [clade_weight_dict[clade] for clade in d["clades"]]
         )
+    return kmers_dict
+
+
+def zero_undesired_peptides(
+    kmers_dict: dict, human_proteome_path: str, k: list
+) -> dict:
+    """
+    Set the score to zero for k-mers that are in the human proteome
+    """
+    human_proteome = load_fasta(human_proteome_path)
+    # kmerise the human proteome
+    human_proteome_kmers = set(
+        [kmer for seq in human_proteome.values() for kmer in kmerise_simple(seq, k)]
+    )
+    # zero the k-mers that are in the human proteome
+    for kmer in kmers_dict:
+        if kmer in human_proteome_kmers:
+            print(f"Zeroing {kmer} because it is in the human proteome")
+            kmers_dict[kmer]["score"] = 0
     return kmers_dict

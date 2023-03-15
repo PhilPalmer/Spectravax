@@ -1,3 +1,4 @@
+import gzip
 import os
 import subprocess
 
@@ -17,9 +18,10 @@ def load_fasta(fasta_path: Path) -> dict:
     """
     Load a FASTA file into a dictionary.
     """
-    fasta_seqs = SeqIO.parse(fasta_path, "fasta")
-    seqs_dict = {seq.id: str(seq.seq) for seq in fasta_seqs}
-    return seqs_dict
+    open_func = gzip.open if fasta_path.suffix == ".gz" else open
+    with open_func(fasta_path, "rt") as f:
+        fasta_seqs = SeqIO.parse(f, "fasta")
+        return {seq.id: str(seq.seq) for seq in fasta_seqs}
 
 
 def kmerise_simple(seq: str, ks: list = [9]):
