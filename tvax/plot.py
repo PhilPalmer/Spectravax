@@ -422,3 +422,39 @@ def plot_param_sweep_scatter(
     )
 
     return fig
+
+
+def plot_param_sweep_lineplot(
+    df: pd.DataFrame,
+    x: str = "pop_cov_weight",
+    xlabel: str = "Population Coverage Weight",
+    control_var: str = "n_cluster",
+    control_var_val: int = 6,
+) -> plt.figure:
+    """
+    Plot lineplot of the parameter sweep results.
+    """
+    # Preprocess
+    df = df[df[control_var] == control_var_val]
+    pop_df = df[[x, "pop_cov"]].rename(columns={"pop_cov": "cov"})
+    pop_df["cov_type"] = "pop_cov"
+    path_df = df[[x, "path_cov"]].rename(columns={"path_cov": "cov"})
+    path_df["cov_type"] = "path_cov"
+    cov_df = pd.concat([pop_df, path_df]).reset_index(drop=True)
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(12, 5))
+    sns.set_theme(style="whitegrid")
+    sns.lineplot(x=x, y="cov", hue="cov_type", data=cov_df, ax=ax, linewidth=2)
+    ax.set_ylim(0, 100)
+    ax.set_xlabel(xlabel, fontsize=16)
+    ax.set_ylabel("Coverage (%)", fontsize=16)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(
+        handles=handles,
+        labels=["Population Coverage", "Pathogen Coverage"],
+        fontsize=14,
+    )
+    ax.tick_params(axis="both", which="major", labelsize=16)
+    ax.set_xticks([1, 5, 10, 15, 20])
+    return fig
