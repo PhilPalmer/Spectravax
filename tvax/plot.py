@@ -221,7 +221,7 @@ def plot_vaccine_design_pca(
     :return: Plot of the PCA of the vaccine design.
     """
     # Define vars
-    base_path = f"{config.results_dir}/MSA/{fasta_base}_designs"
+    base_path = f"{config.results_dir}/MSA/{config.prefix}_designs"
     fasta_path = f"{base_path}.fasta"
     msa_path = f"{base_path}.msa"
     n_clusters = n_clusters if n_clusters else config.n_clusters
