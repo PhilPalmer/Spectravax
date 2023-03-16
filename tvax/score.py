@@ -381,6 +381,5 @@ def zero_undesired_peptides(
     # zero the k-mers that are in the human proteome
     for kmer in kmers_dict:
         if kmer in human_proteome_kmers:
-            print(f"Zeroing {kmer} because it is in the human proteome")
             kmers_dict[kmer]["score"] = 0
     return kmers_dict
