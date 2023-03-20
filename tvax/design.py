@@ -1,9 +1,13 @@
 #!/usr/bin/env python
 
 import networkx as nx
+import pandas as pd
 
+from tqdm.notebook import tqdm
 from tvax.config import EpitopeGraphConfig
 from tvax.graph import argmax, f, P
+from tvax.eval import compute_population_coverage
+from tvax.score import load_haplotypes, load_overlap
 
 
 """
@@ -16,7 +20,7 @@ def design_vaccines(G: nx.Graph, config: EpitopeGraphConfig) -> list:
     Design a vaccine cocktail from a graph of epitopes
     """
     # Find the optimal path(s) through the graph of epitopes
-    Q = cocktail(G, config.m)
+    Q = cocktail(G, config.m, config=config)
     return Q
 
 
@@ -25,21 +29,50 @@ def design_vaccines(G: nx.Graph, config: EpitopeGraphConfig) -> list:
 ###############################################
 
 
-def find_optimal_path(G: nx.Graph) -> list:
+def find_optimal_path(G: nx.Graph, config) -> list:
     """
     Returns the optimal path through a graph of epitopes
     :param G: Directed Graph containing epitopes
     :returns: List of epitope strings on the optimal path
     """
+    # Load the haplotypes and overlap data
+    peptides = [e for e in G.nodes if e not in ["BEGIN", "END"]]
+    mhc_type = "mhc1"
+    hap_freq_path = (
+        config.hap_freq_mhc1_path if mhc_type == "mhc1" else config.hap_freq_mhc2_path
+    )
+    hap_freq, average_frequency = load_haplotypes(hap_freq_path)
+    overlap_haplotypes = load_overlap(peptides, hap_freq, config, mhc_type)
     # Forward loop - compute F(e)
-    for e in G.nodes:
-        F(G, e)
+    epitopes = sorted(G.nodes, key=lambda e: G.nodes[e]["pos"][0])
+    for e in tqdm(epitopes):
+        F(G, e, config, average_frequency, overlap_haplotypes)
     # Backward loop - build the path that achieves the maximal score
     path = backward(G)
     return path
 
 
-def F(G: nx.Graph, e: str) -> float:
+def get_optimal_p(G, e, path, config):
+    """
+    For a given node e, returns the predecessor nodes with the highest F(e) recursively until the start node
+    """
+    predecessors = P(G, e)
+    if predecessors == ["BEGIN"]:
+        return path
+    else:
+        predecessors_Fe = [F(G, pe, config) for pe in predecessors]
+        i = argmax(predecessors_Fe)
+        path.insert(0, predecessors[i])
+        return get_optimal_p(G, predecessors[i], path, config)
+
+
+def F(
+    G: nx.Graph,
+    e: str,
+    config,
+    average_frequency: pd.DataFrame = None,
+    overlap_haplotypes: pd.DataFrame = None,
+) -> float:
     """
     Returns the maximum total score over all paths that end in e
     :param G: Directed Graph containing epitopes
@@ -48,13 +81,37 @@ def F(G: nx.Graph, e: str) -> float:
     """
     # Use precomputed F(e) if it already exists for the epitope
     if "F(e)" not in G.nodes[e]:
-        predecessors = P(G, e)
-        if not predecessors:
-            # If the set of predecessors P(e) is empty, then F(e) = f(e)
-            Fe = f(G, e)
+        if e == "BEGIN":
+            Fe = 0
+        elif e == "END":
+            Fe_dict = nx.get_node_attributes(G, "F(e)")
+            Fe = max(list(Fe_dict.values()))
         else:
-            # If the set of predecessors P(e) is not empty, then F(e) = f(e) + max(F(P(e)))
-            Fe = f(G, e) + max([F(G, pe) for pe in predecessors])
+            predecessors = P(G, e)
+            if predecessors == ["BEGIN"]:
+                # If the set of predecessors P(e) is empty, then F(e) = pop_coverage(e)
+                Fe = compute_population_coverage(
+                    [e],
+                    config.n_target,
+                    config,
+                    "mhc1",
+                    average_frequency,
+                    overlap_haplotypes,
+                )
+            else:
+                # Get all nodes on the optimal path from the start node to the current node
+                path = get_optimal_p(G, e, [e], config)
+                # Then compute the F(e) i.e. population coverage for all of the nodes in the path
+                Fe = compute_population_coverage(
+                    path,
+                    config.n_target,
+                    config,
+                    "mhc1",
+                    average_frequency,
+                    overlap_haplotypes,
+                )
+                print(f"Computed F({e}) = {Fe} using {len(path)} peptides")
+
         # Save F(e) to the graph for this epitope
         nx.set_node_attributes(G, {e: Fe}, "F(e)")
     return f(G, e, f="F(e)")
@@ -90,7 +147,9 @@ def backward(G: nx.Graph, path: list = []) -> list:
 ###########################################################
 
 
-def cocktail(G: nx.Graph, m: int, refine: bool = True, score: str = "score") -> list:
+def cocktail(
+    G: nx.Graph, m: int, refine: bool = True, score: str = "score", config=None
+) -> list:
     """
     Returns a list of m antigens
     :param G: Directed Graph containing epitopes
@@ -101,9 +160,10 @@ def cocktail(G: nx.Graph, m: int, refine: bool = True, score: str = "score") -> 
     Q = []  # vaccine
     # Save original epitope score so it can be reset later
     score_dict = nx.get_node_attributes(G, score)
+    # TODO: If m == 1, then just return the optimal path for computational efficiency
     for n in range(0, m):
         # Compute and save next antigen sequence
-        q = find_optimal_path(G)
+        q = find_optimal_path(G, config)
         # Add q to vaccine
         Q.append(q)
         # No credit for including e in subsequent antigens
@@ -116,11 +176,13 @@ def cocktail(G: nx.Graph, m: int, refine: bool = True, score: str = "score") -> 
     nx.set_node_attributes(G, score_dict, score)
     # Optional: Repeat - iterative refinement
     if refine:
-        Q = iterative_refinement(G, Q)
+        Q = iterative_refinement(G, Q, config=config)
     return Q
 
 
-def iterative_refinement(G: nx.Graph, Q: list, score: str = "score") -> list:
+def iterative_refinement(
+    G: nx.Graph, Q: list, score: str = "score", config=None
+) -> list:
     """
     Returns a list of iteratively refined antigens
     :param G: Directed Graph containing epitopes
@@ -141,7 +203,7 @@ def iterative_refinement(G: nx.Graph, Q: list, score: str = "score") -> list:
                 for e in q:
                     nx.set_node_attributes(G, {e: 0}, score)
             # Compute replacement for old sequence q
-            q = find_optimal_path(G)
+            q = find_optimal_path(G, config)
             # Add q to vaccine
             Q.insert(n, q)
             # Reset to the original scores

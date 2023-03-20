@@ -27,16 +27,24 @@ Evaluate vaccine designs.
 
 
 def compute_population_coverage(
-    peptides: list, n_target: int, config: EpitopeGraphConfig, mhc_type: str
+    peptides: list,
+    n_target: int,
+    config: EpitopeGraphConfig,
+    mhc_type: str,
+    average_frequency: pd.DataFrame = None,
+    overlap_haplotypes: pd.DataFrame = None,
 ) -> float:
     """
     Computes the population coverage of a vaccine design i.e. the fraction of the population that is predicted to have ≥ n peptide-HLA hits produced by the vaccine
     """
-    hap_freq_path = (
-        config.hap_freq_mhc1_path if mhc_type == "mhc1" else config.hap_freq_mhc2_path
-    )
-    hap_freq, average_frequency = load_haplotypes(hap_freq_path)
-    overlap_haplotypes = load_overlap(peptides, hap_freq, config, mhc_type)
+    if average_frequency is None or overlap_haplotypes is None:
+        hap_freq_path = (
+            config.hap_freq_mhc1_path
+            if mhc_type == "mhc1"
+            else config.hap_freq_mhc2_path
+        )
+        hap_freq, average_frequency = load_haplotypes(hap_freq_path)
+        overlap_haplotypes = load_overlap(peptides, hap_freq, config, mhc_type)
     return optivax_robust(overlap_haplotypes, average_frequency, n_target, peptides)
 
 
