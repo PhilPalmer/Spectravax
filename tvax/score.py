@@ -108,12 +108,10 @@ def load_overlap(peptides, hap_freq, config: EpitopeGraphConfig, mhc_type: str):
     """
     if mhc_type == "mhc1":
         alleles_path = config.mhc1_alleles_path
-        raw_affinity_path = config.raw_affinity_mhc1_path
         immune_scores_path = config.immune_scores_mhc1_path
         affinity_cutoff = config.affinity_cutoff_mhc1
     else:
         alleles_path = config.mhc2_alleles_path
-        raw_affinity_path = config.raw_affinity_mhc2_path
         immune_scores_path = config.immune_scores_mhc2_path
         affinity_cutoff = config.affinity_cutoff_mhc2
 
@@ -129,12 +127,30 @@ def load_overlap(peptides, hap_freq, config: EpitopeGraphConfig, mhc_type: str):
 
         # Predict the binding affinity
         if mhc_type == "mhc1":
-            pmhc_aff_pivot = predict_affinity_mhcflurry(
-                peptides, hla_alleles, raw_affinity_path
-            )
+            if "mhcflurry" in config.affinity_predictors:
+                mhcflurry_pivot = predict_affinity_mhcflurry(
+                    peptides, hla_alleles, config.raw_affinity_mhcflurry_path
+                )
+            if "netmhcpan" in config.affinity_predictors:
+                netmhc_pivot = predict_affinity_netmhcpan(
+                    peptides,
+                    hla_alleles,
+                    config.raw_affinity_netmhc_path,
+                    config,
+                    "mhc1",
+                )
+            if (
+                "mhcflurry" in config.affinity_predictors
+                and "netmhcpan" in config.affinity_predictors
+            ):
+                pmhc_aff_pivot = ensemble_predictions(netmhc_pivot, mhcflurry_pivot)
+            elif "mhcflurry" in config.affinity_predictors:
+                pmhc_aff_pivot = mhcflurry_pivot
+            elif "netmhcpan" in config.affinity_predictors:
+                pmhc_aff_pivot = netmhc_pivot
         else:
             pmhc_aff_pivot = predict_affinity_netmhcpan(
-                peptides, hla_alleles, raw_affinity_path, config
+                peptides, hla_alleles, config.raw_affinity_netmhcii_path, config, "mhc2"
             )
 
         # Binarize the data to create hits
@@ -160,19 +176,127 @@ def predict_affinity_mhcflurry(
     """
     Predict the binding affinity of each peptide-HLA pair using MHCflurry
     """
-    predictor = mhcflurry.Class1AffinityPredictor().load()
-    peptides["key"] = 0
-    hla_alleles["key"] = 0
-    pmhc_aff = peptides.merge(hla_alleles, how="outer")
-    pmhc_aff = pmhc_aff.drop(columns=["key"])
-    predictions = predictor.predict(
-        peptides=pmhc_aff["peptide"].to_list(), alleles=pmhc_aff["allele"].to_list()
-    )
-    pmhc_aff["affinity"] = predictions
-    pmhc_aff["transformed_affinity"] = pmhc_aff["affinity"].apply(transform_affinity)
-    pmhc_aff["loci"] = [x[:5] for x in pmhc_aff["allele"].values]
+    if os.path.exists(raw_affinity_path):
 
-    # Pivot the data
+        # TODO: Check if the peptides and alleles are the same as the ones in the file
+        pmhc_aff_pivot = pd.read_pickle(raw_affinity_path)
+
+    else:
+        predictor = mhcflurry.Class1AffinityPredictor().load()
+        peptides["key"] = 0
+        hla_alleles["key"] = 0
+        pmhc_aff = peptides.merge(hla_alleles, how="outer")
+        pmhc_aff = pmhc_aff.drop(columns=["key"])
+        predictions = predictor.predict(
+            peptides=pmhc_aff["peptide"].to_list(), alleles=pmhc_aff["allele"].to_list()
+        )
+        pmhc_aff["affinity"] = predictions
+        pmhc_aff["transformed_affinity"] = pmhc_aff["affinity"].apply(
+            transform_affinity
+        )
+        pmhc_aff = aggregate_binding_mhc1(pmhc_aff)
+
+        # Pivot the data
+        pmhc_aff_pivot = pmhc_aff.pivot_table(
+            index="peptide",
+            columns=["loci", "allele"],
+            values="transformed_affinity",
+        )
+        pmhc_aff_pivot.to_pickle(raw_affinity_path)
+    return pmhc_aff_pivot
+
+
+def predict_affinity_netmhcpan(
+    peptides: pd.DataFrame,
+    hla_alleles: pd.DataFrame,
+    raw_affinity_path: str,
+    config: EpitopeGraphConfig,
+    mhc_type: str = "mhc1",
+) -> pd.DataFrame:
+    """
+    Predict the binding affinity of each peptide-HLA pair using NetMHCpan4.1
+    """
+    if os.path.exists(raw_affinity_path):
+
+        # TODO: Check if the peptides and alleles are the same as the ones in the file
+        pmhc_aff_pivot = pd.read_pickle(raw_affinity_path)
+
+    else:
+        # Define vars
+        args_path = f"{config.results_dir}/MHC_Binding/net{mhc_type}_args.txt"
+        preds_dir = f"{config.results_dir}/MHC_Binding/net{mhc_type}_preds"
+        if mhc_type == "mhc1":
+            cmd_template = (
+                "-p {peptides_path} -a {allele} -BA -xls -xlsfile {allele_path}"
+            )
+            netmhcpan_cmd = config.netmhcpan_cmd
+        else:
+            cmd_template = "-inptype 1 -f {peptides_path} -a {allele}  -BA -xls -xlsfile {allele_path}"
+            netmhcpan_cmd = config.netmhcpanii_cmd
+
+        # Create a file with the peptides.
+        peptides.to_csv(config.peptides_path, index=False, header=False)
+
+        # Create commands for running NetMHCpan4.1.
+        cmds = []
+        for allele in hla_alleles["allele"].values:
+            cmd = cmd_template.format(
+                peptides_path=config.peptides_path,
+                allele=allele.replace("*", "_").replace(":", ""),
+                allele_path=f"{preds_dir}/{allele.replace('*', '_').replace(':', '')}_preds.xls",
+            )
+            cmds.append(cmd)
+
+        with open(args_path, "w") as f:
+            for cmd in cmds:
+                f.write(cmd + "\n")
+
+        # Create directory for results if it doesn't exist
+        if not os.path.exists(preds_dir):
+            os.makedirs(preds_dir)
+
+        # Run NetMHCpan4.1
+        netmhcpan_cmd = f"cat {args_path} | xargs -P {config.netmhc_max_procs} -d '\n' -n 1 {netmhcpan_cmd}"
+        subprocess.call(netmhcpan_cmd, shell=True)
+
+        # Load binding predictions
+        dfs = []
+        for allele in hla_alleles["allele"].values:
+            try:
+                df = pd.read_csv(
+                    f"{preds_dir}/{allele.replace('*', '_').replace(':', '')}_preds.xls",
+                    delimiter="\t",
+                    skiprows=[0],
+                )
+            except:
+                continue
+            df["allele"] = allele
+            df = df.drop(columns=["Pos", "ID", "Ave", "NB"])
+            dfs.append(df)
+
+        pmhc_aff = pd.concat(dfs)
+        pmhc_aff = pmhc_aff.rename(columns={"Peptide": "peptide"})
+        pmhc_aff["transformed_affinity"] = pmhc_aff["nM"].apply(transform_affinity)
+
+        if mhc_type == "mhc1":
+            pmhc_aff = aggregate_binding_mhc1(pmhc_aff)
+        else:
+            pmhc_aff = aggregate_binding_mhc2(pmhc_aff)
+        pmhc_aff_pivot = pmhc_aff.pivot_table(
+            index="peptide",
+            columns=["loci", "allele"],
+            values="transformed_affinity",
+        )
+        pmhc_aff_pivot.to_pickle(raw_affinity_path, protocol=2)
+
+    return pmhc_aff_pivot
+
+
+def aggregate_binding_mhc1(pmhc_aff):
+    """
+    Aggregate the binding predictions for MHC Class I alleles: HLA-A74, HLA-C17, and HLA-C18.
+    """
+    pmhc_aff["loci"] = [x[:5] for x in pmhc_aff["allele"].values]
     a74 = (
         pmhc_aff.loc[pmhc_aff["allele"].str.contains("HLA-A74")]
         .groupby("peptide")
@@ -197,94 +321,28 @@ def predict_affinity_mhcflurry(
     )
     c18["loci"] = "HLA-C"
     c18["allele"] = "HLA-C18"
-    pmhc_aff_pivot = pd.concat([pmhc_aff, a74, c17, c18], sort=False).pivot_table(
-        index="peptide",
-        columns=["loci", "allele"],
-        values="transformed_affinity",
-    )
-    pmhc_aff_pivot.to_pickle(raw_affinity_path)
-    return pmhc_aff_pivot
+    pmhc_aff = pd.concat([pmhc_aff, a74, c17, c18], sort=False)
+    return pmhc_aff
 
 
-def predict_affinity_netmhcpan(
-    peptides: pd.DataFrame,
-    hla_alleles: pd.DataFrame,
-    raw_affinity_path: str,
-    config: EpitopeGraphConfig,
-) -> pd.DataFrame:
+def aggregate_binding_mhc2(pmhc_aff):
     """
-    Predict the binding affinity of each peptide-HLA pair using NetMHCpan4.1
+    Aggregate the binding predictions MHC class II alleles.
     """
-    # Define vars
-    preds_dir = f"{config.results_dir}/MHC_Binding/netmhcii_preds"
-
-    # Create a file with the peptides.
-    peptides.to_csv(config.peptides_path, index=False, header=False)
-
-    # Create commands for running NetMHCIIpan4.1 (MHC-II).
-    cmd_template = (
-        "-inptype 1 -f {peptides_path} -a {allele}  -BA -xls -xlsfile {allele_path}"
-    )
-    cmds = []
-    for allele in hla_alleles["allele"].values:
-        cmd = cmd_template.format(
-            peptides_path=config.peptides_path,
-            allele=allele.replace("*", "_").replace(":", ""),
-            allele_path=f"{preds_dir}/{allele.replace('*', '_').replace(':', '')}_preds.xls",
-        )
-        cmds.append(cmd)
-
-    args_path = f"{config.results_dir}/MHC_Binding/netmhc_class2_args.txt"
-    with open(args_path, "w") as f:
-        for cmd in cmds:
-            f.write(cmd + "\n")
-
-    # Create directory for results if it doesn't exist
-    if not os.path.exists(preds_dir):
-        os.makedirs(preds_dir)
-
-    netmhcpan_cmd = f"cat {args_path} | xargs -P 70 -d '\n' -n {config.n_threads} {config.netmhcpanii_cmd}"
-    subprocess.call(netmhcpan_cmd, shell=True)
-
-    # Load MHC-II binding predictions
-    dfs = []
-    for allele in hla_alleles["allele"].values:
-        try:
-            df = pd.read_csv(
-                f"{preds_dir}/{allele.replace('*', '_').replace(':', '')}_preds.xls",
-                delimiter="\t",
-                skiprows=[0],
-            )
-        except:
-            continue
-        df["allele"] = allele
-        df = df.drop(columns=["Pos", "ID", "Ave", "NB"])
-        dfs.append(df)
-
-    pmhc_aff = pd.concat(dfs)
-    pmhc_aff = pmhc_aff.rename(columns={"Peptide": "peptide"})
     pmhc_aff["loci"] = [
         x[:4] if x[:3] == "DRB" else x[:6] for x in pmhc_aff["allele"].values
     ]
-    pmhc_aff["transformed_affinity"] = pmhc_aff["nM"].apply(transform_affinity)
-
-    df = pmhc_aff
-    df2 = df.groupby(["peptide", "loci"]).count().reset_index()[["peptide", "loci"]]
-    df2["allele"] = "unknown"
-    df2["Score"] = 0.0
-    df2["Rank"] = 0.0
-    df2["Score_BA"] = 0.0
-    df2["Rank_BA"] = 0.0
-    df2["nM"] = 0.0
-    df2["transformed_affinity"] = 0.0
-
-    pmhc_aff_pivot = pd.concat([df, df2], sort=False).pivot_table(
-        index="peptide",
-        columns=["loci", "allele"],
-        values="transformed_affinity",
+    pmhc_aff2 = (
+        pmhc_aff.groupby(["peptide", "loci"]).count().reset_index()[["peptide", "loci"]]
     )
-    pmhc_aff_pivot.to_pickle(raw_affinity_path, protocol=2)
-
+    pmhc_aff2["allele"] = "unknown"
+    pmhc_aff2["Score"] = 0.0
+    pmhc_aff2["Rank"] = 0.0
+    pmhc_aff2["Score_BA"] = 0.0
+    pmhc_aff2["Rank_BA"] = 0.0
+    pmhc_aff2["nM"] = 0.0
+    pmhc_aff2["transformed_affinity"] = 0.0
+    pmhc_aff_pivot = pd.concat([pmhc_aff, pmhc_aff2], sort=False)
     return pmhc_aff_pivot
 
 
@@ -294,6 +352,33 @@ def transform_affinity(x: float, a_min: float = None, a_max: float = 50000) -> f
     """
     x = np.clip(x, a_min=a_min, a_max=a_max)
     return 1 - np.log(x) / np.log(a_max)
+
+
+def reverse_transform_affinity(
+    x: float, a_min: float = None, a_max: float = 50000
+) -> float:
+    """
+    Compute the reverse transformation of the logistic-transformed binding affinity
+    """
+    return a_max ** (1 - x)
+
+
+def ensemble_predictions(netmhc_pivot: pd.DataFrame, mhcflurry_pivot: pd.DataFrame):
+    """
+    Ensemble the predictions from NetMHCpan4.1 and MHCflurry2.
+    """
+    assert netmhc_pivot.shape == mhcflurry_pivot.shape
+    assert set(netmhc_pivot.T.index.values.tolist()) == set(
+        mhcflurry_pivot.T.index.values.tolist()
+    )
+    assert set(netmhc_pivot.index.values.tolist()) == set(
+        mhcflurry_pivot.index.values.tolist()
+    )
+    netmhc_pivot_nm = reverse_transform_affinity(netmhc_pivot)
+    mhcflurry_pivot_nm = reverse_transform_affinity(mhcflurry_pivot)
+    pmhc_aff_pivot = (netmhc_pivot_nm + mhcflurry_pivot_nm) / 2
+    pmhc_aff_pivot = transform_affinity(pmhc_aff_pivot)
+    return pmhc_aff_pivot
 
 
 def add_hits_across_haplotypes(

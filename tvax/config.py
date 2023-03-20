@@ -81,11 +81,10 @@ class EpitopeGraphConfig(BaseModel):
     decycle: bool = True
     equalise_clades: bool = True
     n_clusters: Optional[int] = None
-    n_threads: int = 1
+    netmhc_max_procs: int = 35
     edge_colour = "#BFBFBF"
     weights: Weights = Weights()
-    # TODO: Use the specified affinity predictors
-    mhc_affinity_predictors: Literal["mhcflurry", "netmhcpan"] = [
+    affinity_predictors: Literal["mhcflurry", "netmhcpan"] = [
         "mhcflurry",
         "netmhcpan",
     ]
@@ -98,9 +97,11 @@ class EpitopeGraphConfig(BaseModel):
     peptides_path: Path = None
     immune_scores_mhc1_path: Optional[Path] = None
     immune_scores_mhc2_path: Optional[Path] = None
-    raw_affinity_mhc1_path: Optional[Path] = None
-    raw_affinity_mhc2_path: Optional[Path] = None
+    raw_affinity_mhcflurry_path: Optional[Path] = None
+    raw_affinity_netmhc_path: Optional[Path] = None
+    raw_affinity_netmhcii_path: Optional[Path] = None
     msa_path: Optional[Path] = None
+    netmhcpan_cmd: str = "netMHCpan"
     netmhcpanii_cmd: str = "netMHCIIpan"
     # TODO: Add file path for list of alleles
     alleles: List[Literal[tuple(supported_alleles())]] = default_alleles
@@ -151,8 +152,18 @@ class EpitopeGraphConfig(BaseModel):
         if value is None:
             prefix = values.get("prefix")
             results_dir = values.get("results_dir")
+            affinity_predictors = values.get("affinity_predictors")
+            if (
+                "mhcflurry" in affinity_predictors
+                and "netmhcpan" in affinity_predictors
+            ):
+                predictors = "ensemble"
+            elif "mhcflurry" in affinity_predictors:
+                predictors = "mhcflurry"
+            elif "netmhcpan" in affinity_predictors:
+                predictors = "netmhcpan"
             immune_scores_path = (
-                f"{results_dir}/MHC_Binding/{prefix}_immune_scores_mhc1.pkl"
+                f"{results_dir}/MHC_Binding/{prefix}_immune_scores_{predictors}.pkl"
             )
             return Path(immune_scores_path)
 
@@ -162,29 +173,39 @@ class EpitopeGraphConfig(BaseModel):
             prefix = values.get("prefix")
             results_dir = values.get("results_dir")
             immune_scores_path = (
-                f"{results_dir}/MHC_Binding/{prefix}_immune_scores_mhc2.pkl"
+                f"{results_dir}/MHC_Binding/{prefix}_immune_scores_netmhcii.pkl"
             )
             return Path(immune_scores_path)
 
-    @validator("raw_affinity_mhc1_path", pre=True, always=True)
-    def validate_raw_affinity_mhc1_path(cls, value, values):
+    @validator("raw_affinity_mhcflurry_path", pre=True, always=True)
+    def validate_raw_affinity_mhcflurry_path(cls, value, values):
         if value is None:
             prefix = values.get("prefix")
             results_dir = values.get("results_dir")
-            raw_affinity_mhc1_path = (
-                f"{results_dir}/MHC_Binding/{prefix}_raw_affinity_mhc1.pkl"
+            raw_affinity_mhcflurry_path = (
+                f"{results_dir}/MHC_Binding/{prefix}_raw_affinity_mhcflurry.pkl"
             )
-            return Path(raw_affinity_mhc1_path)
+            return Path(raw_affinity_mhcflurry_path)
 
-    @validator("raw_affinity_mhc2_path", pre=True, always=True)
-    def validate_raw_affinity_mhc2_path(cls, value, values):
+    @validator("raw_affinity_netmhc_path", pre=True, always=True)
+    def validate_raw_affinity_netmhc_path(cls, value, values):
         if value is None:
             prefix = values.get("prefix")
             results_dir = values.get("results_dir")
-            raw_affinity_mhc2_path = (
-                f"{results_dir}/MHC_Binding/{prefix}_raw_affinity_mhc2.pkl.gz"
+            raw_affinity_netmhc_path = (
+                f"{results_dir}/MHC_Binding/{prefix}_raw_affinity_netmhc.pkl"
             )
-            return Path(raw_affinity_mhc2_path)
+            return Path(raw_affinity_netmhc_path)
+
+    @validator("raw_affinity_netmhcii_path", pre=True, always=True)
+    def validate_raw_affinity_netmhcii_path(cls, value, values):
+        if value is None:
+            prefix = values.get("prefix")
+            results_dir = values.get("results_dir")
+            raw_affinity_netmhcii_path = (
+                f"{results_dir}/MHC_Binding/{prefix}_raw_affinity_netmhcii.pkl.gz"
+            )
+            return Path(raw_affinity_netmhcii_path)
 
     @validator("alleles", pre=True, always=True)
     def validate_alleles(cls, value):

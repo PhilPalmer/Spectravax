@@ -265,7 +265,7 @@ def plot_mhc_heatmap(
     # Load and process the MHC binding data
     # TODO: Add support for MHC-II binding data
     affinity_cutoff = config.affinity_cutoff_mhc1
-    raw_affinity_path = config.raw_affinity_mhc1_path
+    raw_affinity_path = config.raw_affinity_mhcflurry_path
     k = config.k[0]
 
     pmhc_aff_pivot = pd.read_pickle(raw_affinity_path)
