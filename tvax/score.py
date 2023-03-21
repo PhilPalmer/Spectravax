@@ -231,14 +231,12 @@ def predict_affinity_netmhcpan(
         # Define vars
         args_path = f"{config.results_dir}/MHC_Binding/net{mhc_type}_args.txt"
         preds_dir = f"{config.results_dir}/MHC_Binding/net{mhc_type}_preds"
-        if mhc_type == "mhc1":
-            cmd_template = (
-                "-p {peptides_path} -a {allele} -BA -xls -xlsfile {allele_path}"
-            )
-            netmhcpan_cmd = config.netmhcpan_cmd
-        else:
-            cmd_template = "-inptype 1 -f {peptides_path} -a {allele}  -BA -xls -xlsfile {allele_path}"
-            netmhcpan_cmd = config.netmhcpanii_cmd
+        cmd_template = (
+            "-inptype 1 -f {peptides_path} -a {allele}  -BA -xls -xlsfile {allele_path}"
+        )
+        netmhcpan_cmd = (
+            config.netmhcpan_cmd if mhc_type == "mhc1" else config.netmhcpanii_cmd
+        )
 
         # Create a file with the peptides.
         peptides.to_csv(config.peptides_path, index=False, header=False)
