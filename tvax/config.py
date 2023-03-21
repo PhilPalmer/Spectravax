@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-import mhcflurry
 import os
 
 from pathlib import Path
@@ -12,14 +11,6 @@ from typing_extensions import Literal
 """
 Config object for the epitope graph.
 """
-
-
-def supported_alleles() -> List[str]:
-    """
-    Returns a list of all supported alleles by MHCflurry.
-    """
-    predictor = mhcflurry.Class1AffinityPredictor.load()
-    return predictor.supported_alleles
 
 
 # Top 27 HLAs
@@ -101,10 +92,13 @@ class EpitopeGraphConfig(BaseModel):
     raw_affinity_netmhc_path: Optional[Path] = None
     raw_affinity_netmhcii_path: Optional[Path] = None
     msa_path: Optional[Path] = None
+    # TODO: Validate that the paths to netMHCpan and netMHCIIpan are valid if:
+    # 1. The affinity_predictors contains "netmhcpan"
+    # 2. The weights.population_coverage_mhc1 or weights.population_coverage_mhc2
     netmhcpan_cmd: str = "netMHCpan"
     netmhcpanii_cmd: str = "netMHCIIpan"
     # TODO: Add file path for list of alleles
-    alleles: List[Literal[tuple(supported_alleles())]] = default_alleles
+    alleles: List[str] = default_alleles
 
     @validator("fasta_path", pre=True, always=True)
     def validate_fasta_path(cls, value):
@@ -206,18 +200,3 @@ class EpitopeGraphConfig(BaseModel):
                 f"{results_dir}/MHC_Binding/{prefix}_raw_affinity_netmhcii.pkl.gz"
             )
             return Path(raw_affinity_netmhcii_path)
-
-    @validator("alleles", pre=True, always=True)
-    def validate_alleles(cls, value):
-        if value == default_alleles:
-            return value
-        else:
-            valid_alleles = supported_alleles()
-            unsupported_alleles = [
-                allele for allele in value if allele not in valid_alleles
-            ]
-            if unsupported_alleles:
-                raise ValueError(
-                    f"The following alleles are not supported by MHCflurry: {unsupported_alleles}"
-                )
-            return value
