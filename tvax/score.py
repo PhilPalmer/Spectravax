@@ -246,9 +246,14 @@ def predict_affinity_netmhcpan(
         # Create commands for running NetMHCpan4.1.
         cmds = []
         for allele in hla_alleles["allele"].values:
+            allele = (
+                allele
+                if mhc_type == "mhc1"
+                else allele.replace("*", "_").replace(":", "")
+            )
             cmd = cmd_template.format(
                 peptides_path=config.peptides_path,
-                allele=allele.replace("*", "_").replace(":", ""),
+                allele=allele,
                 allele_path=f"{preds_dir}/{allele.replace('*', '_').replace(':', '')}_preds.xls",
             )
             cmds.append(cmd)
