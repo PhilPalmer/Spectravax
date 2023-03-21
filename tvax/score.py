@@ -182,6 +182,12 @@ def predict_affinity_mhcflurry(
         pmhc_aff_pivot = pd.read_pickle(raw_affinity_path)
 
     else:
+        mhcflurry_presentation_cmd = (
+            "mhcflurry-downloads fetch models_class1_presentation"
+        )
+        mhcflurry_pan_cmd = "mhcflurry-downloads fetch models_class1_pan"
+        subprocess.call(mhcflurry_presentation_cmd, shell=True)
+        subprocess.call(mhcflurry_pan_cmd, shell=True)
         predictor = mhcflurry.Class1AffinityPredictor().load()
         peptides["key"] = 0
         hla_alleles["key"] = 0
