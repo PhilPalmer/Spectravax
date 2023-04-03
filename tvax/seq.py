@@ -24,7 +24,9 @@ def load_fasta(fasta_path: Path) -> dict:
         return {seq.id: replace_ambiguous_aas(str(seq.seq)) for seq in fasta_seqs}
 
 
-def replace_ambiguous_aas(seq: str, aa_dict: dict = {"B": ["D", "N"]}):
+def replace_ambiguous_aas(
+    seq: str, aa_dict: dict = {"B": ["D", "N"], "J": ["L", "I"], "Z": ["Q", "E"]}
+):
     """
     Replaces ambiguous amino acid codes with the most appropriate canonical amino acid based on the context of the protein
     If the canonical amino acids are equally likely, the first one in the list is used.
