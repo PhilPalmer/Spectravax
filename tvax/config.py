@@ -76,7 +76,7 @@ class EpitopeGraphConfig(BaseModel):
     netmhcpan_tmpdir: Path = "/tmp/netMHCpanXXXXXX"
     edge_colour = "#BFBFBF"
     weights: Weights = Weights()
-    affinity_predictors: Literal["mhcflurry", "netmhcpan"] = [
+    affinity_predictors: List[Literal["mhcflurry", "netmhcpan"]] = [
         "mhcflurry",
         "netmhcpan",
     ]
