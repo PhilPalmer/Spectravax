@@ -72,7 +72,8 @@ class EpitopeGraphConfig(BaseModel):
     decycle: bool = True
     equalise_clades: bool = True
     n_clusters: Optional[int] = None
-    netmhc_max_procs: int = 35
+    netmhc_max_procs: int = 4
+    netmhcpan_tmpdir: Path = "/tmp/netMHCpanXXXXXX"
     edge_colour = "#BFBFBF"
     weights: Weights = Weights()
     affinity_predictors: Literal["mhcflurry", "netmhcpan"] = [

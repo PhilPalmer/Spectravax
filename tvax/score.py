@@ -232,12 +232,10 @@ def predict_affinity_netmhcpan(
         args_path = f"{config.results_dir}/MHC_Binding/net{mhc_type}_args.txt"
         preds_dir = f"{config.results_dir}/MHC_Binding/net{mhc_type}_preds"
         if mhc_type == "mhc1":
-            cmd_template = (
-                "-p {peptides_path} -a {allele} -BA -xls -xlsfile {allele_path}"
-            )
+            cmd_template = "-p {peptides_path} -a {allele} -BA -xls -xlsfile {allele_path} -tdir {tmpdir}"
             netmhcpan_cmd = config.netmhcpan_cmd
         else:
-            cmd_template = "-inptype 1 -f {peptides_path} -a {allele}  -BA -xls -xlsfile {allele_path}"
+            cmd_template = "-inptype 1 -f {peptides_path} -a {allele}  -BA -xls -xlsfile {allele_path} -tdir {tmpdir}"
             netmhcpan_cmd = config.netmhcpanii_cmd
 
         # Create a file with the peptides.
@@ -255,6 +253,7 @@ def predict_affinity_netmhcpan(
                 peptides_path=config.peptides_path,
                 allele=allele,
                 allele_path=f"{preds_dir}/{allele.replace('*', '_').replace(':', '')}_preds.xls",
+                tmpdir=config.netmhcpan_tmpdir,
             )
             cmds.append(cmd)
 
