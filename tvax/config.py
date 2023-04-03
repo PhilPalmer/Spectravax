@@ -63,7 +63,7 @@ class EpitopeGraphConfig(BaseModel):
     fasta_path: Path = None
     prefix: str = None
     results_dir: Path = "results"
-    k: list[int] = [9, 12]
+    k: list[int] = [9, 15]
     m: int = 1
     n_target: int = 1
     affinity_cutoff_mhc1: float = 0.638  # 50nM after logistic transform
