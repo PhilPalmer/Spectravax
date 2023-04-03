@@ -287,6 +287,8 @@ def predict_affinity_netmhcpan(
 
         pmhc_aff = pd.concat(dfs)
         pmhc_aff = pmhc_aff.rename(columns={"Peptide": "peptide"})
+        if "nM" not in pmhc_aff.columns:
+            pmhc_aff["nM"] = 50000 ** (1 - pmhc_aff["BA-score"])
         pmhc_aff["transformed_affinity"] = pmhc_aff["nM"].apply(transform_affinity)
 
         if mhc_type == "mhc1":
