@@ -188,7 +188,7 @@ class EpitopeGraphConfig(BaseModel):
             prefix = values.get("prefix")
             results_dir = values.get("results_dir")
             raw_affinity_netmhc_path = (
-                f"{results_dir}/MHC_Binding/{prefix}_raw_affinity_netmhc.pkl"
+                f"{results_dir}/MHC_Binding/{prefix}_raw_affinity_netmhc.pkl.gz"
             )
             return Path(raw_affinity_netmhc_path)
 
