@@ -21,7 +21,22 @@ def load_fasta(fasta_path: Path) -> dict:
     open_func = gzip.open if fasta_path.suffix == ".gz" else open
     with open_func(fasta_path, "rt") as f:
         fasta_seqs = SeqIO.parse(f, "fasta")
-        return {seq.id: str(seq.seq) for seq in fasta_seqs}
+        return {seq.id: replace_ambiguous_aas(str(seq.seq)) for seq in fasta_seqs}
+
+
+def replace_ambiguous_aas(seq: str, aa_dict: dict = {"B": ["D", "N"]}):
+    """
+    Replaces ambiguous amino acid codes with the most appropriate canonical amino acid based on the context of the protein
+    If the canonical amino acids are equally likely, the first one in the list is used.
+    """
+    for ambig_aa in aa_dict.keys():
+        if ambig_aa in seq:
+            # Count the number of times each of the possible amino acids appears in the sequence
+            aa_counts = {aa: seq.count(aa) for aa in aa_dict[ambig_aa]}
+            # Replace the ambiguous amino acid with the most common amino acid
+            canon_aa = max(aa_counts, key=aa_counts.get)
+            seq = seq.replace(ambig_aa, canon_aa)
+    return seq
 
 
 def kmerise_simple(seq: str, ks: list = [9]):
