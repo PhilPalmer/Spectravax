@@ -85,7 +85,8 @@ def plot_epitope_graph(
         ax.spines.top.set_visible(False)
         ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
         ax.tick_params(axis="both", which="major", labelsize=14)
-        plt.ylabel("Epitope Score", fontsize=18)
+        plt.ylabel("K-mer Score", fontsize=18)
+        plt.xlabel("K-mer Position", fontsize=18)
 
 
 def format_title(title: str) -> str:
