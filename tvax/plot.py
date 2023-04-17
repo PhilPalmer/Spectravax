@@ -420,10 +420,10 @@ def plot_population_coverage(
     # Plot
     sns.set_style("whitegrid")
     sns.set_context("paper", font_scale=1.5)
-    fig, ax = plt.subplots(1, figsize=(14, 6))
     pop_cov_plots = []
 
     for mhc_type in mhc_types:
+        fig, ax = plt.subplots(1, figsize=(14, 6))
         sns.barplot(
             x="n_target",
             y="pop_cov",
