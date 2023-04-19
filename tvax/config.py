@@ -86,7 +86,7 @@ class EpitopeGraphConfig(BaseModel):
     mhc2_alleles_path: Path = None
     hap_freq_mhc1_path: Path = None
     hap_freq_mhc2_path: Path = None
-    peptides_path: Path = None
+    peptides_dir: Path = None
     immune_scores_mhc1_path: Optional[Path] = None
     immune_scores_mhc2_path: Optional[Path] = None
     raw_affinity_mhcflurry_path: Optional[Path] = None
@@ -134,13 +134,15 @@ class EpitopeGraphConfig(BaseModel):
             msa_path = f"{results_dir}/MSA/{prefix}.msa"
             return Path(msa_path)
 
-    @validator("peptides_path", pre=True, always=True)
-    def validate_peptides_path(cls, value, values):
+    @validator("peptides_dir", pre=True, always=True)
+    def validate_peptides_dir(cls, value, values):
         if value is None:
             prefix = values.get("prefix")
             results_dir = values.get("results_dir")
-            peptides_path = f"{results_dir}/MHC_Binding/{prefix}_peptides.txt"
-            return Path(peptides_path)
+            peptides_dir = Path(f"{results_dir}/MHC_Binding/peptides")
+            if not peptides_dir.exists():
+                peptides_dir.mkdir(parents=True, exist_ok=True)
+            return peptides_dir
 
     @validator("immune_scores_mhc1_path", pre=True, always=True)
     def validate_immune_scores_mhc1_path(cls, value, values):
