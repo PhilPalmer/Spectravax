@@ -68,6 +68,7 @@ class EpitopeGraphConfig(BaseModel):
     n_target: int = 1
     affinity_cutoff_mhc1: float = 0.638  # 50nM after logistic transform
     affinity_cutoff_mhc2: float = 0.638  # 0.426 = 500nM after logistic transform
+    conservation_threshold: float = 0.1  # Exclude k-mers with < 1% conservation
     aligned: bool = False
     decycle: bool = True
     equalise_clades: bool = True
