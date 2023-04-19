@@ -18,6 +18,7 @@ from matplotlib import cm
 from tvax.config import EpitopeGraphConfig, Weights
 from tvax.graph import load_fasta
 from tvax.pca_protein_rank import pca_protein_rank, plot_pca
+from tvax.score import load_haplotypes, load_overlap, optivax_robust
 from tvax.seq import msa, path_to_seq
 from scipy import stats
 
