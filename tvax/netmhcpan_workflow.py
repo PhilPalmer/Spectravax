@@ -161,6 +161,7 @@ if __name__ == "__main__":
         "mhc2_alleles_path": "../optivax/scoring/MHC2_allele_marry.txt",
         "hap_freq_mhc1_path": "../optivax/haplotype_frequency_marry.pkl",
         "hap_freq_mhc2_path": "../optivax/haplotype_frequency_marry2.pkl",
+        "peptide_chunk_size": 2,
     }
     config = EpitopeGraphConfig(**params)
 
