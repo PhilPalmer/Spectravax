@@ -1,11 +1,13 @@
 import os
 import pandas as pd
+
+from collections import defaultdict
+from math import ceil
 from pathlib import Path
 from redun import task, Scheduler, script, File
 from redun.config import Config
-from redun.functools import map_
 from tvax.config import EpitopeGraphConfig
-from typing import List
+from typing import List, Tuple
 
 """
 Redun workflow to run NetMHCpan and NetMHCIIpan to predict peptide-HLA binding affinities.
@@ -14,7 +16,7 @@ Redun workflow to run NetMHCpan and NetMHCIIpan to predict peptide-HLA binding a
 redun_namespace = "netmhcpan"
 
 
-@task(version="1")
+@task
 def chunk_peptides(
     peptides: pd.DataFrame,
     peptides_dir: Path,
@@ -35,16 +37,20 @@ def chunk_peptides(
     return peptide_paths
 
 
-@task(version="1")
+@task
 def predict_affinity_netmhcpan(
     peptides_path: File,
     allele: str,
     mhc_type: str = "mhc1",
-    results_dir: str = None,
+    results_dir: Path = None,
     netmhcpan_cmd: str = None,
 ):
+    """
+    Run NetMHCpan or NetMHCIIpan to predict peptide-HLA binding affinities for a single allele.
+    """
     peptide_chunk_idx = peptides_path.path.split("_")[-1].split(".")[0]
-    preds_dir = f"{results_dir}/MHC_Binding/net{mhc_type}_preds"
+    preds_dir = f"{results_dir}/net{mhc_type}_peptide_preds"
+    os.makedirs(preds_dir, exist_ok=True)
     allele_path = f"{preds_dir}/{allele.replace('*', '_').replace(':', '')}_preds_p{peptide_chunk_idx}.xls"
     peptides_path = File(os.path.abspath(peptides_path.path))
     peptides_flag = f"-p" if mhc_type == "mhc1" else f"-inptype 1 -f"
@@ -54,6 +60,44 @@ def predict_affinity_netmhcpan(
         """,
         inputs=[peptides_path.stage(peptides_path.path)],
         outputs=[allele, File(allele_path).stage(allele_path)],
+    )
+
+
+@task
+def group_by_allele(
+    peptide_allele_paths: List[Tuple[str, File]]
+) -> List[Tuple[str, List[File]]]:
+    """
+    Group the peptide paths by allele.
+    """
+    allele2files = defaultdict(list)
+    for allele, file in peptide_allele_paths:
+        allele2files[allele].append(file)
+    return [[allele, files] for allele, files in allele2files.items()]
+
+
+@task
+def concat_allele_files(
+    allele: str,
+    allele_paths: List[File],
+    results_dir: Path,
+) -> List[File]:
+    """
+    Concatenate the per allele files into one file per allele.
+    """
+    allele_fnames = [f.path for f in allele_paths]
+    allele_fname = allele_fnames[0]
+    allele_fnames = " ".join(allele_fnames)
+    preds_dir = f"{results_dir}/net{mhc_type}_preds"
+    os.makedirs(preds_dir, exist_ok=True)
+    out_path = f"{preds_dir}/{allele.replace('*', '_').replace(':', '')}_preds.xls"
+    return script(
+        f"""
+        head -n 2 -q {allele_fname} > {out_path}
+        tail -n +3 -q {allele_fnames} >> {out_path}
+        """,
+        inputs=[f.stage(f.path) for f in allele_paths],
+        outputs=[File(out_path).stage(out_path)],
     )
 
 
@@ -67,26 +111,36 @@ def run_netmhcpan(
     Run NetMHCpan or NetMHCIIpan for a given set of peptides and HLA alleles, splitting the input peptides
     into chunks and running netmhcpan for each chunk before concatenating the results into the per allele files.
     """
+    # Define variables
+    n_peptide_chunks = ceil(len(peptides) / config.peptide_chunk_size)
+    n_hlas = len(hla_alleles)
+    netmhcpan_cmd = config.netmhcpan_cmd if mhc_type == "mhc1" else config.netmhcii_cmd
+    results_dir = Path(f"{config.results_dir}/MHC_Binding")
     # Split peptides into chunks
     peptide_paths = chunk_peptides(
         peptides, config.peptides_dir, config.peptide_chunk_size
     )
-    netmhcpan_cmd = (
-        config.netmhcpan_cmd if mhc_type == "mhc1" else config.netmhcpanii_cmd
-    )
-    # Run netmhcpan for each allele and peptide chunk
-    peptide_allele_paths = []
-    for allele in hla_alleles["allele"].values:
-        # Partially apply all the arguments that don't change.
-        predict = predict_affinity_netmhcpan.partial(
-            allele=allele,
-            mhc_type=mhc_type,
-            results_dir=config.results_dir,
-            netmhcpan_cmd=netmhcpan_cmd,
+    # For each allele, run netmhcpan for each peptide chunk
+    peptide_paths = peptide_paths[:n_peptide_chunks]
+    peptide_allele_paths = [
+        predict_affinity_netmhcpan(
+            peptide_path,
+            allele,
+            mhc_type,
+            results_dir,
+            netmhcpan_cmd,
         )
-        peptide_allele_paths.append(map_(predict, peptide_paths))
-    # TODO: Get the peptide allele paths for each allele and concatenate the results
-    return peptide_allele_paths
+        for allele in hla_alleles["allele"].values
+        for peptide_path in peptide_paths
+    ]
+    # Concatenate the results for each allele
+    peptide_allele_paths = group_by_allele(peptide_allele_paths)
+    peptide_allele_paths = peptide_allele_paths[:n_hlas]
+    allele_paths = [
+        concat_allele_files(allele_files[0], allele_files[1], results_dir)
+        for allele_files in peptide_allele_paths
+    ]
+    return allele_paths
 
 
 if __name__ == "__main__":
@@ -111,7 +165,6 @@ if __name__ == "__main__":
     config = EpitopeGraphConfig(**params)
 
     # Run the workflow
-    # scheduler = Scheduler()
     scheduler = Scheduler(
         config=Config(
             {
