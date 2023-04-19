@@ -72,6 +72,7 @@ class EpitopeGraphConfig(BaseModel):
     decycle: bool = True
     equalise_clades: bool = True
     n_clusters: Optional[int] = None
+    peptide_chunk_size: int = 500
     netmhc_max_procs: int = 4
     netmhcpan_tmpdir: Path = "/tmp/netMHCpanXXXXXX"
     edge_colour = "#BFBFBF"
