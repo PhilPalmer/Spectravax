@@ -79,6 +79,7 @@ def group_by_allele(
 def concat_allele_files(
     allele: str,
     allele_paths: List[File],
+    mhc_type: str,
     results_dir: Path,
 ) -> List[File]:
     """
@@ -136,7 +137,7 @@ def run_netmhcpan(
     peptide_allele_paths = group_by_allele(peptide_allele_paths)
     peptide_allele_paths = peptide_allele_paths[:n_hlas]
     allele_paths = [
-        concat_allele_files(allele_files[0], allele_files[1], results_dir)
+        concat_allele_files(allele_files[0], allele_files[1], mhc_type, results_dir)
         for allele_files in peptide_allele_paths
     ]
     return allele_paths
