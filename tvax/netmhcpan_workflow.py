@@ -16,7 +16,6 @@ Redun workflow to run NetMHCpan and NetMHCIIpan to predict peptide-HLA binding a
 redun_namespace = "netmhcpan"
 
 
-@task
 def chunk_peptides(
     peptides: pd.DataFrame,
     peptides_dir: Path,
