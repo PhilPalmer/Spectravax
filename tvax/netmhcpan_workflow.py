@@ -97,7 +97,7 @@ def concat_allele_files(
         tail -n +3 -q {allele_fnames} >> {out_path}
         """,
         inputs=[f.stage(f.path) for f in allele_paths],
-        outputs=[File(out_path).stage(out_path)],
+        outputs=[allele, File(out_path).stage(out_path)],
     )
 
 
