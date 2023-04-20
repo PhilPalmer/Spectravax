@@ -143,6 +143,21 @@ def run_netmhcpan(
     return allele_paths
 
 
+def scheduler():
+    """
+    Create a scheduler for the pipeline.
+    """
+    return Scheduler(
+        config=Config(
+            {
+                "backend": {
+                    "db_uri": "sqlite:///redun.db",
+                }
+            }
+        )
+    )
+
+
 if __name__ == "__main__":
     # Example data
     # peptides_path = "data/results_redun_test/peptides.txt"
@@ -166,15 +181,7 @@ if __name__ == "__main__":
     config = EpitopeGraphConfig(**params)
 
     # Run the workflow
-    scheduler = Scheduler(
-        config=Config(
-            {
-                "backend": {
-                    "db_uri": "sqlite:///redun.db",
-                }
-            }
-        )
-    )
-    scheduler.load()  # Auto-creates the redun.db file as needed and starts a db connection.
-    result = scheduler.run(run_netmhcpan(peptides, hla_alleles, mhc_type, config))
+    s = scheduler()
+    s.load()  # Auto-creates the redun.db file as needed and starts a db connection.
+    result = s.run(run_netmhcpan(peptides, hla_alleles, mhc_type, config))
     print(result)
