@@ -68,6 +68,7 @@ class EpitopeGraphConfig(BaseModel):
     n_target: int = 1
     affinity_cutoff_mhc1: float = 0.638  # 50nM after logistic transform
     affinity_cutoff_mhc2: float = 0.638  # 0.426 = 500nM after logistic transform
+    # TODO: Use elbow method to determine the optimal conservation threshold
     conservation_threshold: float = 0.1  # Exclude k-mers with < 1% conservation
     aligned: bool = False
     decycle: bool = True
@@ -142,8 +143,7 @@ class EpitopeGraphConfig(BaseModel):
             prefix = values.get("prefix")
             results_dir = values.get("results_dir")
             peptides_dir = Path(f"{results_dir}/MHC_Binding/peptides")
-            if not peptides_dir.exists():
-                peptides_dir.mkdir(parents=True, exist_ok=True)
+            os.makedirs(peptides_dir, exist_ok=True)
             return peptides_dir
 
     @validator("immune_scores_mhc1_path", pre=True, always=True)
