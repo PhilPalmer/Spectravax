@@ -6,6 +6,7 @@ import subprocess
 
 from sklearn.preprocessing import MinMaxScaler
 from tvax.config import EpitopeGraphConfig
+from tvax.netmhcpan_workflow import run_netmhcpan, scheduler
 from tvax.seq import load_fasta, kmerise_simple
 
 """
@@ -130,11 +131,9 @@ def load_overlap(peptides, hap_freq, config: EpitopeGraphConfig, mhc_type: str):
         affinity_cutoff = config.affinity_cutoff_mhc2
 
     if immune_scores_path and os.path.exists(immune_scores_path):
-
         overlap_haplotypes = pd.read_pickle(immune_scores_path)
 
     else:
-
         # Load the data
         peptides = pd.DataFrame({"peptide": peptides})
         hla_alleles = pd.read_csv(alleles_path, names=["allele"])
@@ -191,7 +190,6 @@ def predict_affinity_mhcflurry(
     Predict the binding affinity of each peptide-HLA pair using MHCflurry
     """
     if os.path.exists(raw_affinity_path):
-
         # TODO: Check if the peptides and alleles are the same as the ones in the file
         pmhc_aff_pivot = pd.read_pickle(raw_affinity_path)
 
@@ -237,58 +235,21 @@ def predict_affinity_netmhcpan(
     Predict the binding affinity of each peptide-HLA pair using NetMHCpan4.1
     """
     if os.path.exists(raw_affinity_path):
-
         # TODO: Check if the peptides and alleles are the same as the ones in the file
         pmhc_aff_pivot = pd.read_pickle(raw_affinity_path)
 
     else:
-        # Define vars
-        args_path = f"{config.results_dir}/MHC_Binding/net{mhc_type}_args.txt"
-        preds_dir = f"{config.results_dir}/MHC_Binding/net{mhc_type}_preds"
-        if mhc_type == "mhc1":
-            cmd_template = "-p {peptides_path} -a {allele} -BA -xls -xlsfile {allele_path} -tdir {tmpdir}"
-            netmhcpan_cmd = config.netmhcpan_cmd
-        else:
-            cmd_template = "-inptype 1 -f {peptides_path} -a {allele}  -BA -xls -xlsfile {allele_path} -tdir {tmpdir}"
-            netmhcpan_cmd = config.netmhcpanii_cmd
-
-        # Create a file with the peptides.
-        peptides.to_csv(config.peptides_path, index=False, header=False)
-
-        # Create commands for running NetMHCpan4.1.
-        cmds = []
-        for allele in hla_alleles["allele"].values:
-            allele = (
-                allele
-                if mhc_type == "mhc1"
-                else allele.replace("*", "_").replace(":", "")
-            )
-            cmd = cmd_template.format(
-                peptides_path=config.peptides_path,
-                allele=allele,
-                allele_path=f"{preds_dir}/{allele.replace('*', '_').replace(':', '')}_preds.xls",
-                tmpdir=config.netmhcpan_tmpdir,
-            )
-            cmds.append(cmd)
-
-        with open(args_path, "w") as f:
-            for cmd in cmds:
-                f.write(cmd + "\n")
-
-        # Create directory for results if it doesn't exist
-        if not os.path.exists(preds_dir):
-            os.makedirs(preds_dir)
-
-        # Run NetMHCpan4.1
-        netmhcpan_cmd = f"cat {args_path} | xargs -P {config.netmhc_max_procs} -d '\n' -n 1 {netmhcpan_cmd}"
-        subprocess.call(netmhcpan_cmd, shell=True)
+        # Run NetMHCpan
+        s = scheduler()
+        s.load()
+        allele_paths = s.run(run_netmhcpan(peptides, hla_alleles, mhc_type, config))
 
         # Load binding predictions
         dfs = []
-        for allele in hla_alleles["allele"].values:
+        for allele, allele_path in allele_paths:
             try:
                 df = pd.read_csv(
-                    f"{preds_dir}/{allele.replace('*', '_').replace(':', '')}_preds.xls",
+                    allele_path,
                     delimiter="\t",
                     skiprows=[0],
                 )
