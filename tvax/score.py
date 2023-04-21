@@ -249,7 +249,7 @@ def predict_affinity_netmhcpan(
         for allele, allele_path in allele_paths:
             try:
                 df = pd.read_csv(
-                    allele_path,
+                    allele_path.path,
                     delimiter="\t",
                     skiprows=[0],
                 )
