@@ -114,7 +114,9 @@ def run_netmhcpan(
     # Define variables
     n_peptide_chunks = ceil(len(peptides) / config.peptide_chunk_size)
     n_hlas = len(hla_alleles)
-    netmhcpan_cmd = config.netmhcpan_cmd if mhc_type == "mhc1" else config.netmhcii_cmd
+    netmhcpan_cmd = (
+        config.netmhcpan_cmd if mhc_type == "mhc1" else config.netmhcpanii_cmd
+    )
     results_dir = Path(f"{config.results_dir}/MHC_Binding")
     # Split peptides into chunks
     peptide_paths = chunk_peptides(
