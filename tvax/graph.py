@@ -78,8 +78,10 @@ def add_pos(G: nx.Graph, aligned: bool = False) -> nx.Graph:
     """
     Add position attribute to the graph (for plotting convenience).
     """
+    for node in G.nodes:
+        G.nodes[node]["len"] = len(node)
     if not aligned:
-        paths = nx.shortest_path_length(G, source="BEGIN")
+        paths = nx.shortest_path_length(G, source="BEGIN", weight="len")
         pos = {n: (d, f(G, n)) for n, d in paths.items() if n != "BEGIN" and n != "END"}
         nx.set_node_attributes(G, pos, "pos")
     # Ensure the 'END' node is always at the end of the graph
