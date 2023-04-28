@@ -21,7 +21,10 @@ def load_fasta(fasta_path: Path) -> dict:
     open_func = gzip.open if fasta_path.suffix == ".gz" else open
     with open_func(fasta_path, "rt") as f:
         fasta_seqs = SeqIO.parse(f, "fasta")
-        return {seq.id: replace_ambiguous_aas(str(seq.seq)) for seq in fasta_seqs}
+        return {
+            seq.id: replace_ambiguous_aas(str(seq.seq)).replace("-", "")
+            for seq in fasta_seqs
+        }
 
 
 def replace_ambiguous_aas(
