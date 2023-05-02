@@ -32,9 +32,7 @@ def add_scores(
     kmers_dict = add_clade_weights(kmers_dict, clades_dict, N)
     kmers_dict = add_score(kmers_dict, config)
     if config.human_proteome_path:
-        kmers_dict = zero_undesired_peptides(
-            kmers_dict, config.human_proteome_path, config.k
-        )
+        kmers_dict = remove_host_kmers(kmers_dict, config.human_proteome_path, config.k)
     return kmers_dict
 
 
@@ -439,19 +437,18 @@ def add_clade_weights(kmers_dict: dict, clades_dict: dict, N: int) -> dict:
     return kmers_dict
 
 
-def zero_undesired_peptides(
-    kmers_dict: dict, human_proteome_path: str, k: list
-) -> dict:
+def remove_host_kmers(kmers_dict: dict, human_proteome_path: str, k: list) -> dict:
     """
-    Set the score to zero for k-mers that are in the human proteome
+    Remove k-mers that are in the human proteome
     """
     human_proteome = load_fasta(human_proteome_path)
     # kmerise the human proteome
+    # TODO: Cache this
     human_proteome_kmers = set(
         [kmer for seq in human_proteome.values() for kmer in kmerise_simple(seq, k)]
     )
-    # zero the k-mers that are in the human proteome
-    for kmer in kmers_dict:
-        if kmer in human_proteome_kmers:
-            kmers_dict[kmer]["score"] = 0
+    # remove the k-mers that are in the human proteome
+    kmers_dict = {
+        kmer: d for kmer, d in kmers_dict.items() if kmer not in human_proteome_kmers
+    }
     return kmers_dict
