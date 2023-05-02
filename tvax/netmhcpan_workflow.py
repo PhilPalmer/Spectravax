@@ -153,7 +153,7 @@ def scheduler(max_workers: int = 20, redun_db_path: Path = "redun.db"):
         config=Config(
             {
                 "backend": {
-                    f"db_uri": "sqlite:///{redun_db_path}",
+                    "db_uri": f"sqlite:///{redun_db_path}",
                 },
                 "executors.default": {"max_workers": max_workers},
             }
