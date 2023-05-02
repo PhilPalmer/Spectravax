@@ -76,6 +76,7 @@ class EpitopeGraphConfig(BaseModel):
     n_clusters: Optional[int] = None
     peptide_chunk_size: int = 500
     netmhc_max_procs: int = 4
+    redun_db_path: Path = "redun.db"
     netmhcpan_tmpdir: Path = "/tmp/netMHCpanXXXXXX"
     edge_colour = "#BFBFBF"
     weights: Weights = Weights()

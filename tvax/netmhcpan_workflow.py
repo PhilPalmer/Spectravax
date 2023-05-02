@@ -145,7 +145,7 @@ def run_netmhcpan(
     return allele_paths
 
 
-def scheduler(max_workers: int = 20):
+def scheduler(max_workers: int = 20, redun_db_path: Path = "redun.db"):
     """
     Create a scheduler for the pipeline.
     """
@@ -153,7 +153,7 @@ def scheduler(max_workers: int = 20):
         config=Config(
             {
                 "backend": {
-                    "db_uri": "sqlite:///redun.db",
+                    f"db_uri": "sqlite:///{redun_db_path}",
                 },
                 "executors.default": {"max_workers": max_workers},
             }
