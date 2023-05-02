@@ -240,7 +240,9 @@ def predict_affinity_netmhcpan(
         # Run NetMHCpan
         s = scheduler()
         s.load()
-        allele_paths = s.run(run_netmhcpan(peptides, hla_alleles, mhc_type, config))
+        allele_paths = s.run(
+            run_netmhcpan(peptides["peptide"], hla_alleles, mhc_type, config)
+        )
 
         # Load binding predictions
         dfs = []
