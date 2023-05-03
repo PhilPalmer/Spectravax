@@ -23,8 +23,7 @@ def add_scores(
     # TODO: Do this in a more efficient way
     if config.weights.frequency:
         kmers_dict = add_frequency_score(kmers_dict, N)
-    if config.conservation_threshold:
-        kmers_dict = remove_rare_kmers(kmers_dict, config.conservation_threshold)
+    kmers_dict = remove_kmers(kmers_dict, config.conservation_threshold)
     if config.weights.population_coverage_mhc1:
         kmers_dict = add_population_coverage(kmers_dict, config, "mhc1")
     if config.weights.population_coverage_mhc2:
@@ -66,14 +65,14 @@ def add_frequency_score(kmers_dict: dict, N: int) -> dict:
     return kmers_dict
 
 
-def remove_rare_kmers(kmers_dict: dict, conservation_threshold: float) -> dict:
+def remove_kmers(kmers_dict: dict, conservation_threshold: float) -> dict:
     """
-    Remove k-mers that are not conserved in the target population.
+    Remove k-mers that are not conserved in the target population or contain 'X'.
     """
     kmers_dict = {
-        kmer: kmers_dict[kmer]
-        for kmer in kmers_dict
-        if kmers_dict[kmer]["frequency"] >= conservation_threshold
+        kmer: d
+        for kmer, d in kmers_dict.items()
+        if kmers_dict[kmer]["frequency"] >= conservation_threshold and "X" not in kmer
     }
     return kmers_dict
 
