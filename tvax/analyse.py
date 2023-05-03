@@ -3,7 +3,7 @@ import pandas as pd
 
 from tvax.config import EpitopeGraphConfig, Weights
 from tvax.design import design_vaccines
-from tvax.eval import compute_population_coverage, compute_pathogen_coverage
+from tvax.eval import compute_population_coverage, compute_av_pathogen_coverage
 from tvax.graph import build_epitope_graph
 
 """
@@ -21,7 +21,6 @@ def run_parameter_sweep(
     Run a parameter sweep over the number of clusters and the population coverage weights.
     """
     if not os.path.exists(results_path):
-
         param_sweep_dict = {
             "n_cluster": [],
             "pop_cov_weight": [],
@@ -36,7 +35,7 @@ def run_parameter_sweep(
                 epitope_graph = build_epitope_graph(config)
                 vaccine_designs = design_vaccines(epitope_graph, config)
                 pop_cov = compute_population_coverage(vaccine_designs[0], 5, config)
-                path_cov = compute_pathogen_coverage(vaccine_designs[0], config)
+                path_cov = compute_av_pathogen_coverage(vaccine_designs[0], config)
                 param_sweep_dict["n_cluster"].append(n)
                 param_sweep_dict["pop_cov_weight"].append(weight)
                 param_sweep_dict["pop_cov"].append(pop_cov)
@@ -52,7 +51,6 @@ def run_parameter_sweep(
         param_sweep_df.to_csv(results_path, index=False)
 
     else:
-
         # TODO: Check that the results are the same as the ones in the file
         param_sweep_df = pd.read_csv(results_path)
 
