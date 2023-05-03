@@ -251,6 +251,43 @@ def plot_vaccine_design_pca(
     return pca_plot, comp_df
 
 
+###################
+# Pathogen coverage
+###################
+
+
+def plot_path_cov(path_cov_df: pd.DataFrame):
+    """
+    Plot the pathogen coverage for each target input sequence
+    """
+    # Plot
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.set_theme(style="whitegrid")
+    # Plot the boxes and the points
+    sns.boxplot(
+        x="clade",
+        y="pathogen_coverage",
+        data=path_cov_df,
+        palette=path_cov_df["colour"].unique(),
+        ax=ax,
+    )
+    sns.stripplot(
+        x="clade",
+        y="pathogen_coverage",
+        data=path_cov_df,
+        jitter=True,
+        dodge=True,
+        size=4,
+        alpha=0.5,
+        color="black",
+        ax=ax,
+    )
+    # Set the plot title and labels
+    ax.set_xlabel("Cluster", fontsize=14)
+    ax.set_ylabel("Pathogen Coverage (%)", fontsize=14)
+    # ax.set_ylim(0, 18)
+
+
 #######################
 # Plot MHC binding heatmap
 #######################
