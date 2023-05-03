@@ -21,19 +21,23 @@ def load_fasta(fasta_path: Path) -> dict:
     open_func = gzip.open if fasta_path.suffix == ".gz" else open
     with open_func(fasta_path, "rt") as f:
         fasta_seqs = SeqIO.parse(f, "fasta")
-        return {
-            seq.id: replace_ambiguous_aas(str(seq.seq)).replace("-", "")
-            for seq in fasta_seqs
-        }
+        return {seq.id: remove_invalid_chars(str(seq.seq)) for seq in fasta_seqs}
 
 
-def replace_ambiguous_aas(
-    seq: str, aa_dict: dict = {"B": ["D", "N"], "J": ["L", "I"], "Z": ["Q", "E"]}
-):
+def remove_invalid_chars(
+    seq: str,
+    aa_dict: dict = {"B": ["D", "N"], "J": ["L", "I"], "Z": ["Q", "E"]},
+    invalid_chars: list = ["-", "*"],
+) -> str:
     """
-    Replaces ambiguous amino acid codes with the most appropriate canonical amino acid based on the context of the protein
+    Remove invalid characters from a sequence.
+    Including replacing ambiguous amino acid codes with the most appropriate canonical amino acid based on the context of the protein
     If the canonical amino acids are equally likely, the first one in the list is used.
     """
+    # Remove invalid characters
+    for invalid_char in invalid_chars:
+        seq = seq.replace(invalid_char, "")
+    # Replace ambiguous amino acids with the most common amino acid
     for ambig_aa in aa_dict.keys():
         if ambig_aa in seq:
             # Count the number of times each of the possible amino acids appears in the sequence
