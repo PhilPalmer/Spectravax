@@ -41,19 +41,75 @@ def compute_population_coverage(
 
 
 def compute_pathogen_coverage(
-    vaccine_design: list, config: EpitopeGraphConfig
+    vaccine_seq: list,
+    pathogen_seq: str,
+    k: list,
 ) -> float:
     """
-    Computes the pathogen coverage of a vaccine design i.e. the fraction of kmers in the pathogen that are covered by the vaccine design
+    Compute the fraction of k-mers in the pathogen sequence that are covered by the vaccine design
+    """
+    kmers = kmerise_simple(pathogen_seq, k)
+    # Count the number of k-mers in the pathogen that are covered by the vaccine design
+    # check if a given k-mer is a substring of any k-mers in the vaccine design
+    n_cov = sum(
+        [
+            1
+            for kmer in kmers
+            if any([kmer in vaccine_kmer for vaccine_kmer in vaccine_seq])
+        ]
+    )
+    return n_cov / len(kmers)
+
+
+def compute_pathogen_coverages(
+    vaccine_design: list,
+    config: EpitopeGraphConfig,
+    comp_df: pd.DataFrame = None,
+    add_clades: bool = False,
+) -> pd.DataFrame:
+    """
+    Computes the pathogen coverage of a vaccine designfor all of the target pathogen sequences
     """
     seqs_dict = load_fasta(config.fasta_path)
-    n_cov = 0
-    n_total = 0
-    for seq_id, seq in seqs_dict.items():
-        kmers = kmerise_simple(seq, config.k)
-        n_cov += sum([1 for kmer in kmers if kmer in vaccine_design])
-        n_total += len(kmers)
-    return n_cov / n_total
+    # Compute the pathogen coverage for each pathogen
+    path_cov = {
+        seq_id: compute_pathogen_coverage(vaccine_design, seq, config.k)
+        for seq_id, seq in seqs_dict.items()
+    }
+    # Create a dataframe of pathogen coverage with the sequence id and the pathogen coverage as columns with a numeric index
+    path_cov_df = pd.DataFrame.from_dict(
+        path_cov, orient="index", columns=["pathogen_coverage"]
+    )
+    path_cov_df["seq_name"] = path_cov_df.index
+    path_cov_df = path_cov_df.reset_index(drop=True)
+    # Convert pathogen coverage to percentage
+    path_cov_df["pathogen_coverage"] = path_cov_df["pathogen_coverage"] * 100
+    if add_clades:
+        # Add clade information from comp df using the Sequence_id column
+        path_cov_df["clade"] = path_cov_df["seq_name"].apply(
+            lambda x: comp_df[comp_df["Sequence_id"] == x]["cluster"].values[0]
+        )
+        # Add colour from the comp df
+        path_cov_df["colour"] = path_cov_df["seq_name"].apply(
+            lambda x: comp_df[comp_df["Sequence_id"] == x]["colour"].values[0]
+        )
+        # Sort by clade
+        path_cov_df = path_cov_df.sort_values(by="clade")
+        path_cov_df = path_cov_df.reset_index(drop=True)
+    return path_cov_df
+
+
+def compute_av_pathogen_coverage(
+    vaccine_design: list = None,
+    config: EpitopeGraphConfig = None,
+    path_cov_df: pd.DataFrame = None,
+) -> float:
+    """
+    Computes the average pathogen coverage of a vaccine design i.e. the average fraction of kmers in the target pathogens that are covered by the vaccine design
+    """
+    if path_cov_df is None:
+        path_cov_df = compute_pathogen_coverages(vaccine_design, config)
+    return path_cov_df["pathogen_coverage"].mean()
 
 
 def compute_eigen_dist(
