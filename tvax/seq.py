@@ -126,10 +126,14 @@ def path_to_seq(path: list) -> str:
     return seq
 
 
-def path_to_kmers(path, k, G):
+def seq_to_kmers(seq, k, G):
     """
     Convert a path to a list of all possible k-mers in the k-mer graph
     """
-    kmers = kmerise_simple(path_to_seq(path), k)
+    kmers = kmerise_simple(seq, k)
     kmers = [kmer for kmer in kmers if kmer in G.nodes()]
     return kmers
+
+
+# def get_kmers(kmers, k):
+#     return [kmer for kmer in kmers if len(kmer) == k]
