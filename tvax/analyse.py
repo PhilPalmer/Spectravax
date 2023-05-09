@@ -115,6 +115,30 @@ def antigens_dict():
     }
 
 
+def compute_coverages(
+    kmers: list,
+    config: EpitopeGraphConfig,
+    antigen: str,
+    n_targets: list = list(range(0, 11)),
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Compute the pathogen and population coverages for a given set of k-mers from an antigen.
+    """
+    path_cov_df = compute_pathogen_coverages(kmers, config)
+    # Record population coverage for different values of n for Class I and II
+    figs, pop_cov_df = plot_population_coverage(
+        kmers,
+        n_targets=n_targets,
+        config=config,
+    )
+    # Select rows where ancestry is Average
+    pop_cov_df = pop_cov_df[pop_cov_df["ancestry"] == "Average"]
+    # Add the antigen name to the dataframes
+    path_cov_df["antigen"] = antigen
+    pop_cov_df["antigen"] = antigen
+    return path_cov_df, pop_cov_df
+
+
 def compare_antigens(
     params: dict,
     antigens_dict: dict = antigens_dict(),
@@ -136,24 +160,13 @@ def compare_antigens(
         epitope_graph = build_epitope_graph(config)
         vaccine_designs = design_vaccines(epitope_graph, config)
         vaccine_kmers = path_to_kmers(vaccine_designs[0], config.k, epitope_graph)
-        # Record PCA results
-        fig, comp_df = plot_vaccine_design_pca(
-            vaccine_designs, config, interactive=False
-        )
-        eigen_dist = compute_eigen_dist(comp_df)
-        # Record pathogen coverage
-        path_cov_df = compute_pathogen_coverages(vaccine_kmers, config)
-        # Record population coverage for different values of n for Class I and II
-        figs, pop_cov_df = plot_population_coverage(
+        # Compute the coverages
+        path_cov_df, pop_cov_df = compute_coverages(
             vaccine_kmers,
+            config,
+            antigen,
             n_targets,
-            config=config,
         )
-        # Select rows where ancestry is Average
-        pop_cov_df = pop_cov_df[pop_cov_df["ancestry"] == "Average"]
-        # Add the antigen name to the dataframes
-        path_cov_df["antigen"] = antigen
-        pop_cov_df["antigen"] = antigen
         # Save the dataframes
         path_cov_dfs.append(path_cov_df)
         pop_cov_dfs.append(pop_cov_df)
