@@ -143,30 +143,14 @@ def compare_antigens(
         eigen_dist = compute_eigen_dist(comp_df)
         # Record pathogen coverage
         path_cov_df = compute_pathogen_coverages(vaccine_kmers, config)
-        # path_cov = compute_av_pathogen_coverage(path_cov_df=path_cov_df)
         # Record population coverage for different values of n for Class I and II
         figs, pop_cov_df = plot_population_coverage(
             vaccine_kmers,
             n_targets,
             config=config,
         )
-
         # Select rows where ancestry is Average
         pop_cov_df = pop_cov_df[pop_cov_df["ancestry"] == "Average"]
-        # Rename the mhc_type column to coverage_type
-        # pop_cov_df = pop_cov_df.rename(columns={"mhc_type": "Coverage Type", "pop_cov": "Coverage (%)"})
-        # Add the pathogen coverage data to the dataframe
-        # n_targets = [f"n ≥ {n}" for n in n_targets]
-        # for n in n_targets:
-        #     pop_cov_df = pop_cov_df.append(
-        #     {
-        #         "ancestry": "Average",
-        #         "Coverage Type": "Pathogen",
-        #         "Coverage (%)": path_cov,
-        #         "n_target": n,
-        #     },
-        #     ignore_index=True,
-        # )
         # Add the antigen name to the dataframes
         path_cov_df["antigen"] = antigen
         pop_cov_df["antigen"] = antigen
