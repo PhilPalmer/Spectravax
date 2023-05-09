@@ -586,3 +586,93 @@ def plot_param_sweep_lineplot(
     ax.tick_params(axis="both", which="major", labelsize=16)
     ax.set_xticks([1, 5, 10, 15, 20])
     return fig
+
+
+#########################
+# Compare vaccine designs
+#########################
+
+
+def plot_pop_cov_lineplot(pop_cov_df: pd.DataFrame, mhc_type: str = "mhc1") -> None:
+    """
+    Plot lineplot of the population coverage results for different vaccine designs.
+    """
+    mhc_class = "I" if mhc_type == "mhc1" else "II"
+    y = f"Population Coverage for MHC Class {mhc_class}"
+    pop_cov_df["mhc_type"] = (
+        pop_cov_df["mhc_type"]
+        .replace("mhc1", "Population Coverage for MHC Class I")
+        .replace("mhc2", "Population Coverage for MHC Class II")
+    )
+    df = pop_cov_df[pop_cov_df["mhc_type"] == y]
+
+    # Set the font size and style
+    sns.set(font_scale=1.2)
+    sns.set_style("whitegrid")
+
+    # Set the figure size
+    fig, ax = plt.subplots(figsize=(14, 6))
+
+    # Plot the lineplot
+    sns.lineplot(
+        data=df,
+        x="n_target",
+        y="pop_cov",
+        hue="antigen",
+        markers=True,
+        dashes=False,
+        palette="colorblind",
+        ax=ax,
+    )
+    # Set the axis labels
+    ax.set_xlabel("Minimum number of peptide-HLA hits cutoff")
+    ax.set_ylabel(f"{y} (%)")
+    # Set axis limits
+    ax.set_ylim(0, 100)
+    ax.set_xlim(0, 10)
+    # Display the legend outside of the plot (right middle)
+    ax.legend(bbox_to_anchor=(1.0, 0.8), loc=2, borderaxespad=0.0)
+
+
+def plot_path_cov_swarmplot(path_cov_df: pd.DataFrame) -> None:
+    """
+    Plot swarmplot of the pathogen coverage results for different vaccine designs.
+    """
+    # Set the font size and style
+    sns.set(font_scale=1.2)
+    sns.set_style("whitegrid")
+
+    # Set the figure size
+    fig, ax = plt.subplots(figsize=(14, 6))
+
+    # Plot the swarmplot with data points
+    sns.violinplot(
+        data=path_cov_df,
+        x="antigen",
+        y="pathogen_coverage",
+        hue="antigen",
+        palette="colorblind",
+        ax=ax,
+    )
+    sns.swarmplot(
+        data=path_cov_df,
+        x="antigen",
+        y="pathogen_coverage",
+        hue="antigen",
+        palette="colorblind",
+        ax=ax,
+        dodge=True,
+        size=3,
+        alpha=0.5,
+        legend=False,
+    )
+
+    # Set the x-axis label
+    ax.set_xlabel("Target Antigen")
+    ax.set_ylabel("Pathogen Coverage (%)")
+    # Set axis limits
+    ax.set_ylim(0, 100)
+    # Rotate the x-axis labels
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, horizontalalignment="right")
+    # Display the legend outside of the plot (right middle)
+    ax.legend(bbox_to_anchor=(1.0, 0.8), loc=2, borderaxespad=0.0)
