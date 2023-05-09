@@ -178,3 +178,78 @@ def compare_antigens(
     pop_cov_df = pd.concat(pop_cov_dfs)
 
     return path_cov_df, pop_cov_df
+
+
+#######################
+# Compare to wild-types
+#######################
+
+
+def betacov_strains_dict() -> dict:
+    """
+    Return a dictionary of betacoronavirus strains and their names.
+    """
+    return {
+        "QHR63308_1_nucleocapsid_protein_Bat_coronavirus_RaTG13_Rhinolophus_affinis": "RaTG13",
+        "YP_009825061_1_nucleocapsid_protein_SARS_coronavirus_Tor2_Homo_sapiens": "SARS",
+        "YP_009047211.1": "MERS",
+    }
+
+
+def h3_strains_dict() -> dict:
+    """
+    Returns a dictionary of influenza virus H3 strains and their names.
+    """
+    return {
+        "AIE52620_Human_2011": "A/Victoria/361/2011",
+        "AJK01027_Human_2009": "A/Victoria/210/2009",
+        "AJK02592_Human_2009": "A/Perth/16/2009",
+        "ABW80978_Human_2005": "A/Wisconsin/67/2005",
+    }
+
+
+def compare_to_wts(
+    config: EpitopeGraphConfig,
+    strains_dict: dict = betacov_strains_dict,
+    n_targets: list = list(range(0, 11)),
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Compare vaccine
+    """
+    # Design vaccine
+    epitope_graph = build_epitope_graph(config)
+    vaccine_designs = design_vaccines(epitope_graph, config)
+
+    # Load all seqs
+    seqs_dict = load_fasta(config.fasta_path)
+
+    # Filter to keep seqs of interest
+    seqs_dict = {
+        seq_id: seqs_dict[seq_id]
+        for seq_id in seqs_dict
+        if seq_id in strains_dict.keys()
+    }
+
+    # Add the vaccine design to the dicts
+    seqs_dict["citvax_design"] = path_to_seq(vaccine_designs[0])
+    strains_dict["citvax_design"] = "CITVax Design"
+
+    # Create empty lists to store the results
+    path_cov_dfs = []
+    pop_cov_dfs = []
+
+    for seq_id, seq in seqs_dict.items():
+        seq_name = strains_dict[seq_id]
+        # Convert seqs to k-mers
+        kmers = seq_to_kmers(seq, config.k, epitope_graph)
+        # Compute metrics for each seq
+        path_cov_df, pop_cov_df = compute_coverages(kmers, config, seq_name, n_targets)
+        # Append to lists
+        path_cov_dfs.append(path_cov_df)
+        pop_cov_dfs.append(pop_cov_df)
+
+    # Concatenate the dataframes
+    path_cov_df = pd.concat(path_cov_dfs)
+    pop_cov_df = pd.concat(pop_cov_dfs)
+
+    return path_cov_df, pop_cov_df
