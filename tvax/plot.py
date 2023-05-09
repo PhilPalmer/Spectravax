@@ -413,8 +413,6 @@ def plot_population_coverage(
     Plot the population coverage of the vaccine designs.
     """
     peptides = vaccine_design
-    n_targets = list(range(1, 9))
-    mhc_types = ["mhc1", "mhc2"]
     pop_cov_dict = {"ancestry": [], "mhc_type": [], "n_target": [], "pop_cov": []}
 
     # Preprocessing
@@ -484,7 +482,7 @@ def plot_population_coverage(
         handles, labels = ax.get_legend_handles_labels()
         ax.legend(handles=handles, labels=labels, loc="lower left", fontsize=14)
         pop_cov_plots.append(fig)
-    return pop_cov_plots
+    return pop_cov_plots, pop_cov_df
 
 
 #######################
