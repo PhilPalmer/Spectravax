@@ -115,7 +115,21 @@ def compute_percent_match(first_seq, second_seq):
 
 def path_to_seq(path: list) -> str:
     """
-    Returns an AA string for a list of epitopes (path)
+    Given an ordered list of overlapping k-mers of varying lengths (path) merge them to create an AA string sequence
     """
-    seq = [path[0]] + [e[-1] for e in path[1:]]
-    return "".join(seq)
+    seq = path[0]
+    for i in range(1, len(path)):
+        ma = path[i - 1]
+        mb = path[i]
+        overlap_l = min(len(ma), len(mb)) - 1
+        seq += mb[overlap_l:]
+    return seq
+
+
+def path_to_kmers(path, k, G):
+    """
+    Convert a path to a list of all possible k-mers in the k-mer graph
+    """
+    kmers = kmerise_simple(path_to_seq(path), k)
+    kmers = [kmer for kmer in kmers if kmer in G.nodes()]
+    return kmers

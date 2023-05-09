@@ -408,7 +408,6 @@ def optivax_robust(over, hap, thresh, set_of_peptides):
     total_overlays = np.zeros(num_of_haplotypes, dtype=int)
 
     for pept in set_of_peptides:
-
         total_overlays = total_overlays + np.array(over.loc[pept, :])
 
     filtered_overlays = _my_filter(total_overlays, thresh)
