@@ -10,8 +10,8 @@ from tvax.eval import (
     compute_av_pathogen_coverage,
 )
 from tvax.graph import build_epitope_graph
-from tvax.plot import plot_vaccine_design_pca, plot_population_coverage
-from tvax.seq import path_to_kmers
+from tvax.plot import plot_population_coverage
+from tvax.seq import load_fasta, path_to_seq, seq_to_kmers
 from typing import Tuple
 
 
@@ -159,7 +159,9 @@ def compare_antigens(
         config = EpitopeGraphConfig(**params)
         epitope_graph = build_epitope_graph(config)
         vaccine_designs = design_vaccines(epitope_graph, config)
-        vaccine_kmers = path_to_kmers(vaccine_designs[0], config.k, epitope_graph)
+        vaccine_kmers = seq_to_kmers(
+            path_to_seq(vaccine_designs[0]), config.k, epitope_graph
+        )
         # Compute the coverages
         path_cov_df, pop_cov_df = compute_coverages(
             vaccine_kmers,
