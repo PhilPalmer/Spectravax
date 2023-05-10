@@ -18,6 +18,7 @@ from matplotlib import cm
 from tvax.config import EpitopeGraphConfig, Weights
 from tvax.graph import load_fasta
 from tvax.pca_protein_rank import pca_protein_rank, plot_pca
+from tvax.score import load_haplotypes, load_overlap, optivax_robust
 from tvax.seq import msa, path_to_seq
 from scipy import stats
 
@@ -85,7 +86,8 @@ def plot_epitope_graph(
         ax.spines.top.set_visible(False)
         ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
         ax.tick_params(axis="both", which="major", labelsize=14)
-        plt.ylabel("Epitope Score", fontsize=18)
+        plt.ylabel("K-mer Score", fontsize=18)
+        plt.xlabel("K-mer Position", fontsize=18)
 
 
 def format_title(title: str) -> str:
@@ -249,6 +251,43 @@ def plot_vaccine_design_pca(
     return pca_plot, comp_df
 
 
+###################
+# Pathogen coverage
+###################
+
+
+def plot_path_cov(path_cov_df: pd.DataFrame):
+    """
+    Plot the pathogen coverage for each target input sequence
+    """
+    # Plot
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.set_theme(style="whitegrid")
+    # Plot the boxes and the points
+    sns.boxplot(
+        x="clade",
+        y="pathogen_coverage",
+        data=path_cov_df,
+        palette=path_cov_df["colour"].unique(),
+        ax=ax,
+    )
+    sns.stripplot(
+        x="clade",
+        y="pathogen_coverage",
+        data=path_cov_df,
+        jitter=True,
+        dodge=True,
+        size=4,
+        alpha=0.5,
+        color="black",
+        ax=ax,
+    )
+    # Set the plot title and labels
+    ax.set_xlabel("Cluster", fontsize=14)
+    ax.set_ylabel("Pathogen Coverage (%)", fontsize=14)
+    # ax.set_ylim(0, 18)
+
+
 #######################
 # Plot MHC binding heatmap
 #######################
@@ -265,7 +304,7 @@ def plot_mhc_heatmap(
     # Load and process the MHC binding data
     # TODO: Add support for MHC-II binding data
     affinity_cutoff = config.affinity_cutoff_mhc1
-    raw_affinity_path = config.raw_affinity_mhc1_path
+    raw_affinity_path = config.raw_affinity_mhcflurry_path
     k = config.k[0]
 
     pmhc_aff_pivot = pd.read_pickle(raw_affinity_path)
@@ -357,6 +396,93 @@ def plot_mhc_heatmap(
             axes[i].set_ylabel("MHC allele", fontsize=16)
 
     return fig, peptide_hits_df
+
+
+#####################
+# Population coverage
+#####################
+
+
+def plot_population_coverage(
+    vaccine_design: list = None,
+    n_targets: list = list(range(1, 9)),
+    mhc_types: list = ["mhc1", "mhc2"],
+    config: EpitopeGraphConfig = None,
+):
+    """
+    Plot the population coverage of the vaccine designs.
+    """
+    peptides = vaccine_design
+    pop_cov_dict = {"ancestry": [], "mhc_type": [], "n_target": [], "pop_cov": []}
+
+    # Preprocessing
+    for mhc_type in mhc_types:
+        hap_freq_path = (
+            config.hap_freq_mhc1_path
+            if mhc_type == "mhc1"
+            else config.hap_freq_mhc2_path
+        )
+        hap_freq, average_frequency = load_haplotypes(hap_freq_path)
+        if "Asians" in hap_freq.index:
+            hap_freq.index = hap_freq.index.str.replace("Asians", "Asian")
+        ancestries = hap_freq.index.tolist() + ["Average"]
+        for anc in ancestries:
+            if anc == "Average":
+                anc_freq = average_frequency
+            else:
+                anc_freq = hap_freq.loc[anc].copy()
+            overlap_haplotypes = load_overlap(peptides, anc_freq, config, mhc_type)
+            for n_target in n_targets:
+                pop_cov = optivax_robust(
+                    overlap_haplotypes, anc_freq, n_target, peptides
+                )
+                pop_cov_dict["ancestry"].append(anc)
+                pop_cov_dict["mhc_type"].append(mhc_type)
+                pop_cov_dict["n_target"].append(n_target)
+                pop_cov_dict["pop_cov"].append(pop_cov)
+
+    pop_cov_df = pd.DataFrame(pop_cov_dict)
+    pop_cov_df["pop_cov"] = pop_cov_df["pop_cov"] * 100
+    pop_cov_df["n_target"] = "n ≥ " + pop_cov_df["n_target"].astype(str)
+
+    # Sort by ancestry but put average last
+    ancestries = sorted(ancestries)
+    ancestries.remove("Average")
+    ancestries.append("Average")
+    pop_cov_df["ancestry"] = pd.Categorical(
+        pop_cov_df["ancestry"], categories=ancestries, ordered=True
+    )
+
+    # Plot
+    sns.set_style("whitegrid")
+    sns.set_context("paper", font_scale=1.5)
+    pop_cov_plots = []
+
+    for mhc_type in mhc_types:
+        fig, ax = plt.subplots(1, figsize=(14, 6))
+        sns.barplot(
+            x="n_target",
+            y="pop_cov",
+            hue="ancestry",
+            data=pop_cov_df[pop_cov_df["mhc_type"] == mhc_type],
+            ax=ax,
+            palette="Set2",
+        )
+        ax.set_xlabel("Minimum number of peptide-HLA hits cutoff", fontsize=18)
+        mhc_class = "I" if mhc_type == "mhc1" else "II"
+        ax.set_ylabel(f"Population Coverage for MHC Class {mhc_class} (%)", fontsize=18)
+        ax.tick_params(axis="both", which="major", labelsize=14)
+        ax.spines.right.set_visible(False)
+        ax.spines.top.set_visible(False)
+        ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+        ax.legend(loc="upper left", fontsize=14)
+        # ax.set_xlim([1, 8])
+        ax.set_ylim([0, 100])
+        # Move legend to right side of plot
+        handles, labels = ax.get_legend_handles_labels()
+        ax.legend(handles=handles, labels=labels, loc="lower left", fontsize=14)
+        pop_cov_plots.append(fig)
+    return pop_cov_plots, pop_cov_df
 
 
 #######################
@@ -458,3 +584,93 @@ def plot_param_sweep_lineplot(
     ax.tick_params(axis="both", which="major", labelsize=16)
     ax.set_xticks([1, 5, 10, 15, 20])
     return fig
+
+
+#########################
+# Compare vaccine designs
+#########################
+
+
+def plot_pop_cov_lineplot(pop_cov_df: pd.DataFrame, mhc_type: str = "mhc1") -> None:
+    """
+    Plot lineplot of the population coverage results for different vaccine designs.
+    """
+    mhc_class = "I" if mhc_type == "mhc1" else "II"
+    y = f"Population Coverage for MHC Class {mhc_class}"
+    pop_cov_df["mhc_type"] = (
+        pop_cov_df["mhc_type"]
+        .replace("mhc1", "Population Coverage for MHC Class I")
+        .replace("mhc2", "Population Coverage for MHC Class II")
+    )
+    df = pop_cov_df[pop_cov_df["mhc_type"] == y]
+
+    # Set the font size and style
+    sns.set(font_scale=1.2)
+    sns.set_style("whitegrid")
+
+    # Set the figure size
+    fig, ax = plt.subplots(figsize=(14, 6))
+
+    # Plot the lineplot
+    sns.lineplot(
+        data=df,
+        x="n_target",
+        y="pop_cov",
+        hue="antigen",
+        markers=True,
+        dashes=False,
+        palette="colorblind",
+        ax=ax,
+    )
+    # Set the axis labels
+    ax.set_xlabel("Minimum number of peptide-HLA hits cutoff")
+    ax.set_ylabel(f"{y} (%)")
+    # Set axis limits
+    ax.set_ylim(0, 100)
+    ax.set_xlim(0, 10)
+    # Display the legend outside of the plot (right middle)
+    ax.legend(bbox_to_anchor=(1.0, 0.8), loc=2, borderaxespad=0.0)
+
+
+def plot_path_cov_swarmplot(path_cov_df: pd.DataFrame) -> None:
+    """
+    Plot swarmplot of the pathogen coverage results for different vaccine designs.
+    """
+    # Set the font size and style
+    sns.set(font_scale=1.2)
+    sns.set_style("whitegrid")
+
+    # Set the figure size
+    fig, ax = plt.subplots(figsize=(14, 6))
+
+    # Plot the swarmplot with data points
+    sns.violinplot(
+        data=path_cov_df,
+        x="antigen",
+        y="pathogen_coverage",
+        hue="antigen",
+        palette="colorblind",
+        ax=ax,
+    )
+    sns.swarmplot(
+        data=path_cov_df,
+        x="antigen",
+        y="pathogen_coverage",
+        hue="antigen",
+        palette="colorblind",
+        ax=ax,
+        dodge=True,
+        size=3,
+        alpha=0.5,
+        legend=False,
+    )
+
+    # Set the x-axis label
+    ax.set_xlabel("Target Antigen")
+    ax.set_ylabel("Pathogen Coverage (%)")
+    # Set axis limits
+    ax.set_ylim(0, 100)
+    # Rotate the x-axis labels
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, horizontalalignment="right")
+    # Display the legend outside of the plot (right middle)
+    ax.legend(bbox_to_anchor=(1.0, 0.8), loc=2, borderaxespad=0.0)

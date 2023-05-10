@@ -1,10 +1,15 @@
 biopython==1.79
 jupyterlab==3.4.5
-igviz==0.4.0
 matplotlib==3.5.3
 mhcflurry==2.0.6
 networkx==2.8.5
 numpy==1.23.2
 pandas==1.4.3
+plotly==4.5.2
+pydantic==1.10.5
+redun==0.12.0
 scikit-learn==1.1.2
 scipy==1.9.0
+seaborn==0.12.2
+tensorflow==2.11.0
+tqdm==4.64.1

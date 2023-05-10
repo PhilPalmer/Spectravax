@@ -162,26 +162,29 @@ def get_clusters(msa_df, pca_scores, n_clusters):
     return comp_df
 
 
-def get_loadings(pca, ranked_msa_df):
+def get_loadings(pca, msa_df, ranked_msa_df):
     """
     Get the loadings from the PCA
     :param pca: PCA object
+    :param msa_df: MSA dataframe
     :param ranked_msa_df: ranked MSA dataframe
     :return: loadings dataframe
     """
     loadings_df = pd.DataFrame(pca.components_.T, index=ranked_msa_df.columns[:])
-    # dist = {}
-    # for index, rows in loadings.iterrows():
-    #     d1 = (((float(rows[0]))**2) + ((float(rows[1]))**2) + ((float(rows[2]))**2))**0.5
-    #     dist[index] = d1
-    # m = max(dist.values())
-    # list1 = ['Sequence_id']
-    # for pos1,dist1 in dist.items():
-    #     if dist1 > (0.01*m):
-    #         list1.append(pos1)
-    #     else:
-    #         continue
-    # loadings_df = msa_df.loc[:,list1]
+    dist = {}
+    for index, rows in loadings_df.iterrows():
+        d1 = (
+            ((float(rows[0])) ** 2) + ((float(rows[1])) ** 2) + ((float(rows[2])) ** 2)
+        ) ** 0.5
+        dist[index] = d1
+    m = max(dist.values())
+    list1 = ["Sequence_id"]
+    for pos1, dist1 in dist.items():
+        if dist1 > (0.01 * m):
+            list1.append(pos1)
+        else:
+            continue
+    loadings_df = msa_df.loc[:, list1]
     return loadings_df
 
 
@@ -330,7 +333,7 @@ def pca_protein_rank(msa_pr_path, n_clusters=None, plot=True):
 
     # TODO: Investigate NaN values in the 'cluster_rank' column
     comp_df = get_clusters(msa_df, pca_scores, n_clusters)
-    loadings_df = get_loadings(pca, ranked_msa_df)
+    loadings_df = get_loadings(pca, msa_df, ranked_msa_df)
     clusters_dict = (
         comp_df[["Sequence_id", "cluster"]]
         .set_index("Sequence_id")
@@ -342,8 +345,8 @@ def pca_protein_rank(msa_pr_path, n_clusters=None, plot=True):
 
     # Plotting
     elbow_plot = plot_elbow_graph(wcss)
-    pca_2d_plot = plot_pca(comp_df, type="2D")
-    pca_3d_plot = plot_pca(comp_df, type="3D")
+    pca_2d_plot = plot_pca(comp_df, plot_type="2D")
+    pca_3d_plot = plot_pca(comp_df, plot_type="3D")
     pca_interactive_plot = plot_pca(comp_df, interactive=True)
     loadings_plot = plot_loadings(loadings_df)
 

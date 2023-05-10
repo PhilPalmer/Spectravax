@@ -21,7 +21,31 @@ def load_fasta(fasta_path: Path) -> dict:
     open_func = gzip.open if fasta_path.suffix == ".gz" else open
     with open_func(fasta_path, "rt") as f:
         fasta_seqs = SeqIO.parse(f, "fasta")
-        return {seq.id: str(seq.seq) for seq in fasta_seqs}
+        return {seq.id: remove_invalid_chars(str(seq.seq)) for seq in fasta_seqs}
+
+
+def remove_invalid_chars(
+    seq: str,
+    aa_dict: dict = {"B": ["D", "N"], "J": ["L", "I"], "Z": ["Q", "E"]},
+    invalid_chars: list = ["-", "*"],
+) -> str:
+    """
+    Remove invalid characters from a sequence.
+    Including replacing ambiguous amino acid codes with the most appropriate canonical amino acid based on the context of the protein
+    If the canonical amino acids are equally likely, the first one in the list is used.
+    """
+    # Remove invalid characters
+    for invalid_char in invalid_chars:
+        seq = seq.replace(invalid_char, "")
+    # Replace ambiguous amino acids with the most common amino acid
+    for ambig_aa in aa_dict.keys():
+        if ambig_aa in seq:
+            # Count the number of times each of the possible amino acids appears in the sequence
+            aa_counts = {aa: seq.count(aa) for aa in aa_dict[ambig_aa]}
+            # Replace the ambiguous amino acid with the most common amino acid
+            canon_aa = max(aa_counts, key=aa_counts.get)
+            seq = seq.replace(ambig_aa, canon_aa)
+    return seq
 
 
 def kmerise_simple(seq: str, ks: list = [9]):
@@ -91,7 +115,25 @@ def compute_percent_match(first_seq, second_seq):
 
 def path_to_seq(path: list) -> str:
     """
-    Returns an AA string for a list of epitopes (path)
+    Given an ordered list of overlapping k-mers of varying lengths (path) merge them to create an AA string sequence
     """
-    seq = [path[0]] + [e[-1] for e in path[1:]]
-    return "".join(seq)
+    seq = path[0]
+    for i in range(1, len(path)):
+        ma = path[i - 1]
+        mb = path[i]
+        overlap_l = min(len(ma), len(mb)) - 1
+        seq += mb[overlap_l:]
+    return seq
+
+
+def seq_to_kmers(seq, k, G):
+    """
+    Convert a path to a list of all possible k-mers in the k-mer graph
+    """
+    kmers = kmerise_simple(seq, k)
+    kmers = [kmer for kmer in kmers if kmer in G.nodes()]
+    return kmers
+
+
+# def get_kmers(kmers, k):
+#     return [kmer for kmer in kmers if len(kmer) == k]
