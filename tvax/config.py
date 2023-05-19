@@ -66,6 +66,7 @@ class EpitopeGraphConfig(BaseModel):
     k: list[int] = [9, 15]
     m: int = 1
     n_target: int = 1
+    robust: bool = True
     affinity_cutoff_mhc1: float = 0.638  # 50nM after logistic transform
     affinity_cutoff_mhc2: float = 0.638  # 0.426 = 500nM after logistic transform
     # TODO: Use elbow method to determine the optimal conservation threshold

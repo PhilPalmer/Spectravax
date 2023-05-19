@@ -46,15 +46,18 @@ def find_optimal_path(G: nx.Graph, config) -> list:
     # Forward loop - compute F(e)
     epitopes = sorted(G.nodes, key=lambda e: G.nodes[e]["pos"][0])
     for e in tqdm(epitopes):
-        F(
-            G,
-            e,
-            config,
-            average_frequency_mhc1,
-            average_frequency_mhc2,
-            overlap_haplotypes_mhc1,
-            overlap_haplotypes_mhc2,
-        )
+        if config.robust:
+            F_robust(
+                G,
+                e,
+                config,
+                average_frequency_mhc1,
+                average_frequency_mhc2,
+                overlap_haplotypes_mhc1,
+                overlap_haplotypes_mhc2,
+            )
+        else:
+            F_fast(G, e)
     # Backward loop - build the path that achieves the maximal score
     path = backward(G)
     return path
@@ -68,13 +71,35 @@ def get_optimal_p(G, e, path, config):
     if predecessors == ["BEGIN"]:
         return path
     else:
-        predecessors_Fe = [F(G, pe, config) for pe in predecessors]
+        predecessors_Fe = [F_robust(G, pe, config) for pe in predecessors]
         i = argmax(predecessors_Fe)
         path.insert(0, predecessors[i])
         return get_optimal_p(G, predecessors[i], path, config)
 
 
-def F(
+def F_fast(G: nx.Graph, e: str) -> float:
+    """
+    Returns the maximum total score over all paths that end in e
+    Uses a faster implementation of summing over the paths rather than computing the population coverage score for
+    :param G: Directed Graph containing epitopes
+    :param e: String for a given potential T-cell epitope (PTE)
+    :returns: Float for the maximum total epitope score
+    """
+    # Use precomputed F(e) if it already exists for the epitope
+    if "F(e)" not in G.nodes[e]:
+        predecessors = P(G, e)
+        if not predecessors:
+            # If the set of predecessors P(e) is empty, then F(e) = f(e)
+            Fe = f(G, e)
+        else:
+            # If the set of predecessors P(e) is not empty, then F(e) = f(e) + max(F(P(e)))
+            Fe = f(G, e) + max([F_fast(G, pe) for pe in predecessors])
+        # Save F(e) to the graph for this epitope
+        nx.set_node_attributes(G, {e: Fe}, "F(e)")
+    return f(G, e, f="F(e)")
+
+
+def F_robust(
     G: nx.Graph,
     e: str,
     config,
@@ -84,7 +109,8 @@ def F(
     overlap_haplotypes_mhc2: pd.DataFrame = None,
 ) -> float:
     """
-    Returns the maximum total score over all paths that end in e
+    Returns the maximum total score over all paths that end in e.
+    Optimises a more robust population coverage by computing the population coverage for each path.
     :param G: Directed Graph containing epitopes
     :param e: String for a given potential T-cell epitope (PTE)
     :returns: Float for the maximum total epitope score
