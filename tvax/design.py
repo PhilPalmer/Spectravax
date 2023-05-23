@@ -150,7 +150,7 @@ def F_robust(
                     overlap_haplotypes_mhc1,
                     overlap_haplotypes_mhc2,
                 )
-                print(f"Computed F({e}) = {Fe} using {len(path)} peptides")
+                # print(f"Computed F({e}) = {Fe} using {len(path)} peptides")
 
         # Save F(e) to the graph for this epitope
         nx.set_node_attributes(G, {e: Fe}, "F(e)")
