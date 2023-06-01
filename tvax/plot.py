@@ -81,7 +81,7 @@ def plot_epitope_graph(
         limits = plt.axis("on")
         max_pos = max([p[0] for p in pos.values()]) + 0.5
         ax.set_xlim([-0.5, max_pos])
-        ax.set_ylim(ylim)
+        # ax.set_ylim(ylim)
         ax.spines.right.set_visible(False)
         ax.spines.top.set_visible(False)
         ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
@@ -405,7 +405,7 @@ def plot_mhc_heatmap(
 
 def plot_population_coverage(
     vaccine_design: list = None,
-    n_targets: list = list(range(1, 9)),
+    n_targets: list = list(range(0, 11)),
     mhc_types: list = ["mhc1", "mhc2"],
     config: EpitopeGraphConfig = None,
 ):
@@ -591,7 +591,9 @@ def plot_param_sweep_lineplot(
 #########################
 
 
-def plot_pop_cov_lineplot(pop_cov_df: pd.DataFrame, mhc_type: str = "mhc1") -> None:
+def plot_pop_cov_lineplot(
+    pop_cov_df: pd.DataFrame, mhc_type: str = "mhc1", hue: str = "antigen"
+) -> None:
     """
     Plot lineplot of the population coverage results for different vaccine designs.
     """
@@ -616,7 +618,7 @@ def plot_pop_cov_lineplot(pop_cov_df: pd.DataFrame, mhc_type: str = "mhc1") -> N
         data=df,
         x="n_target",
         y="pop_cov",
-        hue="antigen",
+        hue=hue,
         markers=True,
         dashes=False,
         palette="colorblind",
