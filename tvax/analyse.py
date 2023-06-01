@@ -253,3 +253,108 @@ def compare_to_wts(
     pop_cov_df = pd.concat(pop_cov_dfs)
 
     return path_cov_df, pop_cov_df
+
+
+#################################################################
+# Compare CITVax-Fast vs CITVax-Robust methods for vaccine design
+#################################################################
+
+
+def params_to_update() -> list:
+    """
+    Returns a list of dictionaries of parameters to update.
+    """
+    return [
+        {
+            "n_target": 1,
+            "robust": False,
+        },
+        {
+            "n_target": 1,
+            "robust": True,
+        },
+        {
+            "n_target": 2,
+            "robust": True,
+        },
+        {
+            "n_target": 3,
+            "robust": True,
+        },
+        {
+            "n_target": 4,
+            "robust": True,
+        },
+        {
+            "n_target": 5,
+            "robust": True,
+        },
+    ]
+
+
+def compare_citvax_methods(
+    params: dict,
+    params_to_update: list = params_to_update(),
+    results_path: str = "data/algo_results.csv",
+) -> None:
+    """
+    Compare CITVax-Fast vs CITVax-Robust methods for vaccine design.
+    """
+    # Create empty dataframe
+    df = pd.DataFrame(
+        {
+            "vaccine_seq": [],
+            "n_target": [],
+            "robust": [],
+        }
+    )
+
+    for updated_params in params_to_update:
+        params = {**params, **updated_params}
+
+        config = EpitopeGraphConfig(**params)
+        epitope_graph = build_epitope_graph(config)
+        vaccine_designs = design_vaccines(epitope_graph, config)
+        vaccine_seq = [path_to_seq(path) for path in vaccine_designs][0]
+        n_target = config.n_target
+        robust = config.robust
+        # Append to dataframe
+        df = df.append(
+            {
+                "vaccine_seq": vaccine_seq,
+                "n_target": n_target,
+                "robust": robust,
+            },
+            ignore_index=True,
+        )
+        # Save dataframe
+        df.to_csv(results_path, index=False)
+
+    # Update dataframe
+    df["n_target"] = df["n_target"].astype(int)
+    df["robust"] = df["robust"].astype(bool)
+    df["method"] = (
+        df["robust"].apply(lambda x: "Robust" if x else "Fast")
+        + " n ≥"
+        + df["n_target"].astype(str)
+    )
+
+    # Compute population coverage for each vaccine design at different n_target values
+    pop_cov_dfs = []
+
+    for index, row in df.iterrows():
+        vaccine_kmers = seq_to_kmers(row.vaccine_seq, config.k, epitope_graph)
+        figs, pop_cov_df = plot_population_coverage(
+            vaccine_kmers,
+            config=config,
+        )
+        pop_cov_df = pop_cov_df[pop_cov_df["ancestry"] == "Average"]
+        pop_cov_df["method"] = row.method
+        pop_cov_dfs.append(pop_cov_df)
+
+    # Concatenate the dataframes
+    pop_cov_df = pd.concat(pop_cov_dfs)
+
+    # Plot population coverage
+    plot_pop_cov_lineplot(pop_cov_df, mhc_type="mhc1", hue="method")
+    plot_pop_cov_lineplot(pop_cov_df, mhc_type="mhc2", hue="method")
