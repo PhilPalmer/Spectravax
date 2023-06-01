@@ -21,8 +21,7 @@ def add_scores(
     Add the scores and weights to each k-mer.
     """
     # TODO: Do this in a more efficient way
-    if config.weights.frequency:
-        kmers_dict = add_frequency_score(kmers_dict, N)
+    kmers_dict = add_frequency_score(kmers_dict, N)
     kmers_dict = remove_kmers(kmers_dict, config.conservation_threshold)
     if config.weights.population_coverage_mhc1:
         kmers_dict = add_population_coverage(kmers_dict, config, "mhc1")
