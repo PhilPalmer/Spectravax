@@ -10,7 +10,7 @@ from tvax.eval import (
     compute_av_pathogen_coverage,
 )
 from tvax.graph import build_epitope_graph
-from tvax.plot import plot_population_coverage
+from tvax.plot import plot_population_coverage, plot_pop_cov_lineplot
 from tvax.seq import load_fasta, path_to_seq, seq_to_kmers
 from typing import Tuple
 
