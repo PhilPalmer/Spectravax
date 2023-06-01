@@ -4,11 +4,7 @@ import igviz as ig
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
-import os
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import plotly.io as pio
 import seaborn as sns
 
 from Bio import SeqIO
@@ -21,6 +17,7 @@ from tvax.pca_protein_rank import pca_protein_rank, plot_pca
 from tvax.score import load_haplotypes, load_overlap, optivax_robust
 from tvax.seq import msa, path_to_seq
 from scipy import stats
+from scipy.interpolate import griddata
 
 
 """
@@ -490,100 +487,67 @@ def plot_population_coverage(
 #######################
 
 
-def plot_param_sweep_heatmap(
-    df: pd.DataFrame, x: str = "n_cluster", y: str = "pop_cov_weight", z: str = "av_cov"
-) -> go.Figure:
+def plot_parameter_sweep_surface(
+    target_protein: str = "n",
+    x: str = "w_mhc1",
+    y: str = "w_mhc2",
+    z: str = "pop_cov_mhc1_n_5",
+    z_label: str = "Population coverage MHC Class I n ≥ 5 (%)",
+    param_sweep_path: str = None,
+    out_path: str = None,
+) -> None:
     """
-    Plot a heatmap of the parameter sweep results.
+    Plot parameter sweep 3D surface plot
     """
-    fig = go.Figure(
-        data=go.Heatmap(
-            x=df[x],
-            y=df[y],
-            z=df[z],
-            colorscale="RdBu",
-            hovertemplate="Number of clusters: %{x}<br>Population coverage weight: %{y}<br>Population coverage: %{customdata[0]:.1f}%<br>Pathogen coverage: %{customdata[1]:.1f}%<br>Mean coverage: %{z:.1f}%",
-            customdata=df[["pop_cov", "path_cov"]].values,
-            colorbar=dict(title="Mean coverage (%)"),
-        )
+    if param_sweep_path is None:
+        param_sweep_path = f"data/param_sweep_betacov_{target_protein}.csv"
+    if out_path is None:
+        out_path = f"data/figures/param_sweep_surface_{target_protein}_{z}.png"
+
+    # Load data
+    df = pd.read_csv(param_sweep_path)
+    covs = ["pop_cov_mhc1_n_5", "pop_cov_mhc2_n_5", "path_cov"]
+    df["av_cov"] = df[covs].mean(axis=1)
+
+    # Increase the resolution of the grid
+    x_unique = np.linspace(df[x].min(), df[x].max(), 100)
+    y_unique = np.linspace(df[y].min(), df[y].max(), 100)
+    x_grid, y_grid = np.meshgrid(x_unique, y_unique)
+    z_grid = griddata((df[x], df[y]), df[z], (x_grid, y_grid), method="linear")
+    df_grid = pd.DataFrame({x: x_grid.ravel(), y: y_grid.ravel(), z: z_grid.ravel()})
+
+    # Generate plot
+    fig = plt.figure(figsize=(10, 10))
+    ax = fig.add_subplot(111, projection="3d")
+    # Trisurf plot
+    # ax.plot_trisurf(
+    #     df[x],
+    #     df[y],
+    #     df[z],
+    #     cmap=cm.viridis,
+    #     linewidth=0.2,
+    #     antialiased=True,
+    # )
+    ax.plot_surface(
+        x_grid, y_grid, z_grid, cmap="viridis", linewidth=0.5, vmin=0, vmax=100
     )
-
-    fig.update_layout(
-        xaxis_title="Number of clusters", yaxis_title="Population coverage weight"
+    ax.contour(
+        x_grid,
+        y_grid,
+        z_grid,
+        10,
+        lw=3,
+        cmap="viridis",
+        linestyles="solid",
+        offset=-1,
+        vmin=0,
+        vmax=100,
     )
-
-    return fig
-
-
-def plot_param_sweep_scatter(
-    df: pd.DataFrame, x: str = "pop_cov", y: str = "path_cov", z: str = "av_cov"
-) -> px.imshow:
-    """
-    Plot a scatter plot of the parameter sweep results.
-    """
-
-    pio.templates.default = "plotly_white"
-
-    fig = px.scatter(
-        df,
-        x=x,
-        y=y,
-        color=z,
-        trendline="ols",
-        hover_data=["pop_cov_weight", "n_cluster"],
-        labels={
-            "pop_cov": "Population coverage (%)",
-            "path_cov": "Pathogen coverage (%)",
-            "av_cov": "Mean coverage (%)",
-            "n_cluster": "Number of clusters",
-            "pop_cov_weight": "Population coverage weight",
-        },
-        color_continuous_midpoint=50,
-        # color_continuous_scale="RdBu",
-    )
-
-    fig.update_layout(
-        xaxis_title_font_size=16,
-        yaxis_title_font_size=16,
-    )
-
-    return fig
-
-
-def plot_param_sweep_lineplot(
-    df: pd.DataFrame,
-    x: str = "pop_cov_weight",
-    xlabel: str = "Population Coverage Weight",
-    control_var: str = "n_cluster",
-    control_var_val: int = 6,
-) -> plt.figure:
-    """
-    Plot lineplot of the parameter sweep results.
-    """
-    # Preprocess
-    df = df[df[control_var] == control_var_val]
-    pop_df = df[[x, "pop_cov"]].rename(columns={"pop_cov": "cov"})
-    pop_df["cov_type"] = "pop_cov"
-    path_df = df[[x, "path_cov"]].rename(columns={"path_cov": "cov"})
-    path_df["cov_type"] = "path_cov"
-    cov_df = pd.concat([pop_df, path_df]).reset_index(drop=True)
-
-    # Plot
-    fig, ax = plt.subplots(figsize=(12, 5))
-    sns.set_theme(style="whitegrid")
-    sns.lineplot(x=x, y="cov", hue="cov_type", data=cov_df, ax=ax, linewidth=2)
-    ax.set_ylim(0, 100)
-    ax.set_xlabel(xlabel, fontsize=16)
-    ax.set_ylabel("Coverage (%)", fontsize=16)
-    handles, labels = ax.get_legend_handles_labels()
-    ax.legend(
-        handles=handles,
-        labels=["Population Coverage", "Pathogen Coverage"],
-        fontsize=14,
-    )
-    ax.tick_params(axis="both", which="major", labelsize=16)
-    ax.set_xticks([1, 5, 10, 15, 20])
-    return fig
+    ax.set_zlim(0, 100)
+    ax.set_xlabel("Population Coverage MHC Class I Weight ($w_{mhc1}$)")
+    ax.set_ylabel("Population Coverage MHC Class II Weight ($w_{mhc2}$)")
+    ax.set_zlabel(z_label)
+    plt.savefig(out_path, dpi=300, bbox_inches="tight")
 
 
 #########################
