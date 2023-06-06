@@ -640,3 +640,44 @@ def plot_path_cov_swarmplot(path_cov_df: pd.DataFrame) -> None:
     ax.set_xticklabels(ax.get_xticklabels(), rotation=45, horizontalalignment="right")
     # Display the legend outside of the plot (right middle)
     ax.legend(bbox_to_anchor=(1.0, 0.8), loc=2, borderaxespad=0.0)
+
+
+###########################################################################
+# Plot the predicted the number of hits in mice for each experimental group
+###########################################################################
+
+
+def plot_predicted_hits_barplot(
+    binders_df: pd.DataFrame, out_path: str = "data/figures/predicted_mice_mhc_hits.png"
+) -> None:
+    """
+    Plot the predicted number of peptide-MHC hits for different sequences
+    """
+    # Define the style
+    sns.set(style="whitegrid")
+    sns.set_palette("colorblind")
+
+    # Generate the plot
+    g = sns.FacetGrid(
+        binders_df,
+        col="mhc_class",
+        hue="binding_threshold",
+        hue_order=["Weak", "Strong", "Very Strong (<50nM)"],
+        col_wrap=2,
+        height=4,
+        aspect=1.5,
+    )
+    g.map(sns.barplot, "ID", "hits").add_legend()
+
+    # Add labels
+    g.despine(left=True)
+    g.set_axis_labels("", "Number of peptide-H-2 hits")
+    g.legend.set_title("Binding threshold")
+    g.set_titles("{col_name}")
+    # Rotate the x-axis labels
+    for ax in g.axes.flat:
+        for label in ax.get_xticklabels():
+            label.set_rotation(45)
+
+    # Save the plot
+    g.savefig(out_path, dpi=300)

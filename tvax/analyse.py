@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import subprocess
 
 from tvax.config import EpitopeGraphConfig, Weights
 from tvax.design import design_vaccines
@@ -11,6 +12,7 @@ from tvax.eval import (
 )
 from tvax.graph import build_epitope_graph
 from tvax.plot import plot_population_coverage, plot_pop_cov_lineplot
+from tvax.score import transform_affinity
 from tvax.seq import load_fasta, path_to_seq, seq_to_kmers
 from typing import Tuple
 
@@ -401,3 +403,84 @@ def compare_citvax_methods(
     # Plot population coverage
     plot_pop_cov_lineplot(pop_cov_df, mhc_type="mhc1", hue="method")
     plot_pop_cov_lineplot(pop_cov_df, mhc_type="mhc2", hue="method")
+
+
+################################################################
+# Predict the number of hits in mice for each experimental group
+################################################################
+
+
+def pred_n_hits(
+    workdir: str = "data/mice_mhcs",
+    fasta_name: str = "NP_designs_June2023.txt",
+    mhc_alleles: dict = {"mhc1": ["H-2-Kb", "H-2-Db"], "mhc2": ["H-2-IAb"]},
+):
+    """
+    Predict the number of hits for all sequences in a FASTA file.
+    """
+    fasta_path = f"{workdir}/{fasta_name}"
+    dfs = []
+    for mhc_class, alleles in mhc_alleles.items():
+        for allele in alleles:
+            netmhcpan_cmd = "netMHCpan" if mhc_class == "mhc1" else "netMHCIIpan"
+            outpath = f"{workdir}/{allele.replace('-', '')}_{mhc_class}_predictions.txt"
+            cmd = f"{netmhcpan_cmd} -f {fasta_path} -a {allele} -BA -xls -xlsfile {outpath}"
+            subprocess.run(cmd, shell=True)
+
+            # Read in and process the predictions into a dataframe
+            df = pd.read_csv(outpath, delimiter="\t", skiprows=[0])
+            df["mhc_class"] = mhc_class
+            df["allele"] = allele
+            df = df.rename(
+                columns={
+                    "Peptide": "peptide",
+                    "Core": "core",
+                    "Score_BA": "BA-score",
+                    "Rank_BA": "BA_Rank",
+                    "Score": "EL-score",
+                    "Rank": "EL_Rank",
+                }
+            )
+            if "nM" not in df.columns:
+                df["nM"] = 50000 ** (1 - df["BA-score"])
+            df["transformed_affinity"] = df["nM"].apply(transform_affinity)
+            dfs.append(df)
+
+    # Create a dataframe of the number of strong and weak binders for each vaccine design
+    pmhc_aff = pd.concat(dfs)
+    binders_df = pd.DataFrame(columns=["ID", "mhc_class", "<50nM", "strong", "weak"])
+
+    for id in pmhc_aff.ID.unique():
+        for mhc in mhc_alleles.keys():
+            df = pmhc_aff[(pmhc_aff["mhc_class"] == mhc) & (pmhc_aff["ID"] == id)]
+            vstrong_affinity_cutoff = 0.638
+            strong_affinity_cutoff = 0.5 if mhc == "mhc1" else 1.0
+            weak_affinity_cutoff = 2.0 if mhc == "mhc1" else 5.0
+            n_vstrong_binders = len(
+                df[df["transformed_affinity"] > vstrong_affinity_cutoff]
+            )
+            n_strong_binders = len(df[df["BA_Rank"] < strong_affinity_cutoff])
+            n_weak_binders = len(df[df["BA_Rank"] < weak_affinity_cutoff])
+            binders_df = binders_df.append(
+                {
+                    "ID": id,
+                    "mhc_class": mhc,
+                    "weak": n_weak_binders,
+                    "strong": n_strong_binders,
+                    "<50nM": n_vstrong_binders,
+                },
+                ignore_index=True,
+            )
+
+    # Melt and rename values in the dataframe
+    binders_df = binders_df.melt(
+        id_vars=["ID", "mhc_class"], var_name="binding_threshold", value_name="hits"
+    )
+    binders_df["mhc_class"] = binders_df["mhc_class"].replace(
+        {"mhc1": "MHC Class I", "mhc2": "MHC Class II"}
+    )
+    binders_df["binding_threshold"] = binders_df["binding_threshold"].replace(
+        {"<50nM": "Very Strong (<50nM)", "strong": "Strong", "weak": "Weak"}
+    )
+    binders_df["ID"] = binders_df["ID"].replace({"CITVax_dStab": "CITVax-dStab"})
+    return binders_df
