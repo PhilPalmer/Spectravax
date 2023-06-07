@@ -16,7 +16,7 @@ from tvax.config import EpitopeGraphConfig, Weights
 from tvax.graph import load_fasta
 from tvax.pca_protein_rank import pca_protein_rank, plot_pca
 from tvax.score import load_haplotypes, load_overlap, optivax_robust
-from tvax.seq import msa, path_to_seq
+from tvax.seq import msa, path_to_seq, kmerise_simple
 from scipy import stats
 from scipy.interpolate import griddata
 
@@ -286,29 +286,45 @@ def plot_path_cov(path_cov_df: pd.DataFrame):
     # ax.set_ylim(0, 18)
 
 
-#######################
+##########################
 # Plot MHC binding heatmap
-#######################
+##########################
 
 
 def plot_mhc_heatmap(
-    path: list,
+    seq: str,
+    epitope_graph: nx.Graph,
     config: EpitopeGraphConfig,
     alleles: list = None,
-    hla_loci: list = ["HLA-A", "HLA-B", "HLA-C"],
+    mhc_type: str = "mhc1",
     hspace: float = 0.05,
 ):
     """ """
-    # Load and process the MHC binding data
-    # TODO: Add support for MHC-II binding data
-    affinity_cutoff = config.affinity_cutoff_mhc1
-    raw_affinity_path = config.raw_affinity_mhcflurry_path
-    k = config.k[0]
+    if mhc_type == "mhc1":
+        affinity_cutoff = config.affinity_cutoff_mhc1
+        raw_affinity_path = config.raw_affinity_netmhc_path
+        k = min(config.k)
+        hla_loci = ["HLA-A", "HLA-B", "HLA-C"]
+    else:
+        affinity_cutoff = config.affinity_cutoff_mhc2
+        raw_affinity_path = config.raw_affinity_netmhcii_path
+        k = max(config.k)
+        hla_loci = ["DRB1", "HLA-DP", "HLA-DQ"]
 
     pmhc_aff_pivot = pd.read_pickle(raw_affinity_path)
     pmhc_aff_pivot = pmhc_aff_pivot.applymap(lambda x: 1 if x > affinity_cutoff else 0)
-    pos = [i + 1 for i in range(len(path[0]))]
-    df = pmhc_aff_pivot.loc[path[0], :].T
+    path = kmerise_simple(seq, [k])
+    pos = [i + 1 for i in range(len(path))]
+    try:
+        df = pmhc_aff_pivot.loc[path, :].T
+    except KeyError:
+        # T-reg epitopes are not in the binding data - set them to 0
+        df = pd.DataFrame(
+            np.zeros((len(pmhc_aff_pivot.columns), len(path))), columns=path
+        )
+        kmers = [kmer for kmer in path if kmer in pmhc_aff_pivot.index]
+        df.index = pmhc_aff_pivot.columns
+        df.loc[:, kmers] = pmhc_aff_pivot.loc[kmers, :].T
     df.columns = pos
     # Reshape dataframe to long format
     df = df.reset_index().melt(
@@ -319,6 +335,10 @@ def plot_mhc_heatmap(
         df = df.loc[df["allele"].isin(alleles), :]
     # Filter to only keep the specified HLA loci
     df = df.loc[df["loci"].isin(hla_loci), :]
+    # Rename the loci DRB1 -> HLA-DRB1
+    df["allele"] = df["allele"].apply(
+        lambda x: x.replace("DRB1", "HLA-DRB1").replace("_", "-")
+    )
 
     # Generate dataframe of number of peptide-HLA hits per allele
     if not alleles:
