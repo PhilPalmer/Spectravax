@@ -1,7 +1,9 @@
+import networkx as nx
 import os
 import pandas as pd
 import subprocess
 
+from dna_features_viewer import GraphicFeature, GraphicRecord
 from tvax.config import EpitopeGraphConfig, Weights
 from tvax.design import design_vaccines
 from tvax.eval import (
@@ -10,7 +12,7 @@ from tvax.eval import (
     compute_pathogen_coverages,
     compute_av_pathogen_coverage,
 )
-from tvax.graph import build_epitope_graph
+from tvax.graph import build_epitope_graph, f
 from tvax.plot import plot_population_coverage, plot_pop_cov_lineplot
 from tvax.score import transform_affinity
 from tvax.seq import load_fasta, path_to_seq, seq_to_kmers
@@ -484,3 +486,96 @@ def pred_n_hits(
     )
     binders_df["ID"] = binders_df["ID"].replace({"CITVax_dStab": "CITVax-dStab"})
     return binders_df
+
+
+############################################
+# Annotation and coverage scores by position
+############################################
+
+
+def load_annotation(
+    gff_file: str = "data/input/P0DTC9.gff",
+    out_path: str = "data/figures/cov_by_pos.png",
+    colors: dict = {
+        "Domain": "blue",
+        "Region": "green",
+        "Motif": "orange",
+        "Compositional bias": "purple",
+        "Binding site": "red",
+    },
+    sequence_length: int = 419,
+) -> GraphicRecord:
+    """
+    Load annotation from a GFF file.
+    """
+    features = []
+    with open(gff_file, "r") as file:
+        for line in file:
+            if line.startswith("#") or line.strip() == "":
+                continue
+            columns = line.strip().split("\t")
+            feature_type = columns[2]
+            note_list = [
+                x.split("=")[1] for x in columns[8].split(";") if x.startswith("Note=")
+            ]
+            if note_list:
+                note = note_list[0]
+            else:
+                note = "Binding site"  # or any default value you want to assign
+            if feature_type in colors:
+                features.append(
+                    GraphicFeature(
+                        start=int(columns[3]),
+                        end=int(columns[4]),
+                        strand=+1,
+                        color=colors[feature_type],
+                        label=note,
+                    )
+                )
+
+    # Sort features by start position
+    features.sort(key=lambda f: f.start)
+    record = GraphicRecord(sequence_length=sequence_length, features=features)
+    return record
+
+
+def compute_cov_by_pos(
+    vaccine_designs: list, epitope_graph: nx.digraph
+) -> pd.DataFrame:
+    """
+    Compute the coverage by position for a vaccine design.
+    """
+    pos = 0
+    kmer_scores_dict = {
+        "kmer": [],
+        "position": [],
+        "pathogen_coverage": [],
+        "population_coverage_mhc1": [],
+        "population_coverage_mhc2": [],
+    }
+
+    # For each k-mer in the vaccine design
+    for i, kmer in enumerate(vaccine_designs[0]):
+        # Get the position of the k-mer in the vaccine design
+        k = len(kmer)
+        if i == 0:
+            pos = k
+        else:
+            overlap = min(k, prev_k) - 1
+            pos += k - overlap
+        prev_k = k
+        # Get the pathogen coverage
+        path_cov = f(epitope_graph, kmer, f="frequency") * 100
+        # Get the population coverage
+        pop_cov_mhc1 = f(epitope_graph, kmer, f="population_coverage_mhc1") * 100
+        pop_cov_mhc2 = f(epitope_graph, kmer, f="population_coverage_mhc2") * 100
+        # Add the k-mer and its scores to the dict
+        kmer_scores_dict["kmer"].append(kmer)
+        kmer_scores_dict["position"].append(pos)
+        kmer_scores_dict["pathogen_coverage"].append(path_cov)
+        kmer_scores_dict["population_coverage_mhc1"].append(pop_cov_mhc1)
+        kmer_scores_dict["population_coverage_mhc2"].append(pop_cov_mhc2)
+
+    # Convert the dict to a dataframe
+    kmer_scores_df = pd.DataFrame(kmer_scores_dict)
+    return kmer_scores_df

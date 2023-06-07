@@ -10,6 +10,7 @@ import seaborn as sns
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
+from dna_features_viewer import GraphicFeature, GraphicRecord
 from matplotlib import cm
 from tvax.config import EpitopeGraphConfig, Weights
 from tvax.graph import load_fasta
@@ -681,3 +682,59 @@ def plot_predicted_hits_barplot(
 
     # Save the plot
     g.savefig(out_path, dpi=300)
+
+
+###################################################
+# Plot the annotation + coverage scores by position
+###################################################
+
+
+def plot_annot_cov_by_pos(
+    record: GraphicRecord,
+    kmer_scores_df: pd.DataFrame,
+    out_path: str = "data/figures/cov_by_pos.png",
+) -> None:
+    """
+    Plot the annotation + coverage scores by position
+    """
+    fig, (ax1, ax2) = plt.subplots(
+        2, 1, figsize=(12, 6), sharex=True, gridspec_kw={"height_ratios": [3, 3]}
+    )
+    sns.set_theme(style="whitegrid")
+    sns.set_palette("colorblind")
+
+    # Annotation
+    record.plot(ax=ax1, with_ruler=False, strand_in_label_threshold=4)
+
+    # Coverage
+    sns.lineplot(
+        data=kmer_scores_df,
+        x="position",
+        y="pathogen_coverage",
+        label="Pathogen Coverage",
+        ax=ax2,
+    )
+    sns.lineplot(
+        data=kmer_scores_df,
+        x="position",
+        y="population_coverage_mhc1",
+        label="Population Coverage (MHC-I)",
+        ax=ax2,
+    )
+    sns.lineplot(
+        data=kmer_scores_df,
+        x="position",
+        y="population_coverage_mhc2",
+        label="Population Coverage (MHC-II)",
+        ax=ax2,
+    )
+    # Set axis limits and labels
+    plt.xlim(0, kmer_scores_df["position"].max())
+    plt.ylim(0, 100)
+    plt.xlabel("Amino Acid Position")
+    plt.ylabel("Coverage (%)")
+    plt.legend()
+    plt.tight_layout()
+
+    # Save the plot
+    plt.savefig(out_path, dpi=300)

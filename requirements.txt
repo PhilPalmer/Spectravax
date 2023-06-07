@@ -1,4 +1,6 @@
+bcbio-gff==0.7.0
 biopython==1.79
+dna-features-viewer==3.1.2
 jupyterlab==3.4.5
 matplotlib==3.5.3
 mhcflurry==2.0.6
