@@ -257,7 +257,7 @@ def h3_strains_dict() -> dict:
 
 def compare_to_wts(
     config: EpitopeGraphConfig,
-    strains_dict: dict = betacov_strains_dict,
+    strains_dict: dict = betacov_strains_dict(),
     n_targets: list = list(range(0, 11)),
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
