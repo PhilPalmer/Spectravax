@@ -62,7 +62,7 @@ class EpitopeGraphConfig(BaseModel):
 
     fasta_path: Path = None
     prefix: str = None
-    results_dir: Path = "results"
+    results_dir: Path = None
     k: list[int] = [9, 15]
     m: int = 1
     n_target: int = 1
@@ -124,7 +124,10 @@ class EpitopeGraphConfig(BaseModel):
             return value
 
     @validator("results_dir", pre=True, always=True)
-    def validate_results_dir(cls, value):
+    def validate_results_dir(cls, value, values):
+        if value is None:
+            prefix = values.get("prefix")
+            value = f"results_{prefix}"
         subdirs = ["MSA", "MHC_Binding"]
         for subdir in subdirs:
             if not Path(f"{value}/{subdir}").exists():
@@ -167,6 +170,7 @@ class EpitopeGraphConfig(BaseModel):
                 f"{results_dir}/MHC_Binding/{prefix}_immune_scores_{predictors}.pkl"
             )
             return Path(immune_scores_path)
+        return value
 
     @validator("immune_scores_mhc2_path", pre=True, always=True)
     def validate_immune_scores_mhc2_path(cls, value, values):
@@ -177,6 +181,7 @@ class EpitopeGraphConfig(BaseModel):
                 f"{results_dir}/MHC_Binding/{prefix}_immune_scores_netmhcii.pkl"
             )
             return Path(immune_scores_path)
+        return value
 
     @validator("raw_affinity_mhcflurry_path", pre=True, always=True)
     def validate_raw_affinity_mhcflurry_path(cls, value, values):
@@ -187,6 +192,7 @@ class EpitopeGraphConfig(BaseModel):
                 f"{results_dir}/MHC_Binding/{prefix}_raw_affinity_mhcflurry.pkl"
             )
             return Path(raw_affinity_mhcflurry_path)
+        return value
 
     @validator("raw_affinity_netmhc_path", pre=True, always=True)
     def validate_raw_affinity_netmhc_path(cls, value, values):
@@ -197,6 +203,7 @@ class EpitopeGraphConfig(BaseModel):
                 f"{results_dir}/MHC_Binding/{prefix}_raw_affinity_netmhc.pkl.gz"
             )
             return Path(raw_affinity_netmhc_path)
+        return value
 
     @validator("raw_affinity_netmhcii_path", pre=True, always=True)
     def validate_raw_affinity_netmhcii_path(cls, value, values):
@@ -207,3 +214,4 @@ class EpitopeGraphConfig(BaseModel):
                 f"{results_dir}/MHC_Binding/{prefix}_raw_affinity_netmhcii.pkl.gz"
             )
             return Path(raw_affinity_netmhcii_path)
+        return value
