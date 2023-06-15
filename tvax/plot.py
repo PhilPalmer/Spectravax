@@ -712,7 +712,6 @@ def plot_predicted_hits_barplot(
 def plot_annot_cov_by_pos(
     record: GraphicRecord,
     kmer_scores_df: pd.DataFrame,
-    plot_sar_mer: bool = False,
     out_path: str = "data/figures/cov_by_pos.png",
 ) -> None:
     """
@@ -736,7 +735,10 @@ def plot_annot_cov_by_pos(
         ax=ax2,
         # color="red",
     )
-    if plot_sar_mer:
+    if (
+        "conservation_sarbeco" in kmer_scores_df.columns
+        and "conservation_merbeco" in kmer_scores_df.columns
+    ):
         sns.lineplot(
             data=kmer_scores_df,
             x="position",
