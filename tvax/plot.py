@@ -691,14 +691,16 @@ def plot_predicted_hits_barplot(
     g.map(sns.barplot, "ID", "hits").add_legend()
 
     # Add labels
+    g.fig.subplots_adjust(wspace=0.1)
     g.despine(left=True)
     g.set_axis_labels("", "Number of peptide-H-2 hits")
     g.legend.set_title("Binding threshold")
     g.set_titles("{col_name}")
     # Rotate the x-axis labels
     for ax in g.axes.flat:
-        for label in ax.get_xticklabels():
-            label.set_rotation(45)
+        ax.set_xticklabels(
+            ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor"
+        )
 
     # Save the plot
     g.savefig(out_path, dpi=300)
