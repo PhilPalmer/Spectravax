@@ -540,7 +540,16 @@ def load_annotation(
 
 
 def compute_cov_by_pos(
-    vaccine_designs: list, epitope_graph: nx.digraph
+    vaccine_designs: list,
+    epitope_graph: nx.digraph,
+    config: EpitopeGraphConfig = None,
+    comp_df: pd.DataFrame = None,
+    sarbeco_clades=[
+        1,
+        3,
+        6,
+    ],
+    merbeco_clades=[2, 4, 5],
 ) -> pd.DataFrame:
     """
     Compute the coverage by position for a vaccine design.
@@ -549,10 +558,32 @@ def compute_cov_by_pos(
     kmer_scores_dict = {
         "kmer": [],
         "position": [],
-        "pathogen_coverage": [],
+        "conservation_total": [],
         "population_coverage_mhc1": [],
         "population_coverage_mhc2": [],
     }
+    if config is not None:
+        kmer_scores_dict["conservation_sarbeco"] = []
+        kmer_scores_dict["conservation_merbeco"] = []
+        seqs_dict = load_fasta(config.fasta_path)
+        N = len(seqs_dict)
+        clades_dict = (
+            comp_df[["Sequence_id", "cluster"]]
+            .set_index("Sequence_id")
+            .to_dict()["cluster"]
+        )
+        sar_seqs_dict = {
+            seq_id: seq
+            for seq_id, seq in seqs_dict.items()
+            if clades_dict[seq_id] in sarbeco_clades
+        }
+        mer_seqs_dict = {
+            seq_id: seq
+            for seq_id, seq in seqs_dict.items()
+            if clades_dict[seq_id] in merbeco_clades
+        }
+        N_sar = len(sar_seqs_dict)
+        N_mer = len(mer_seqs_dict)
 
     # For each k-mer in the vaccine design
     for i, kmer in enumerate(vaccine_designs[0]):
@@ -564,17 +595,33 @@ def compute_cov_by_pos(
             overlap = min(k, prev_k) - 1
             pos += k - overlap
         prev_k = k
-        # Get the pathogen coverage
-        path_cov = f(epitope_graph, kmer, f="frequency") * 100
+        # Get the total conservation
+        cons_tot = f(epitope_graph, kmer, f="frequency") * 100
+        if config is not None:
+            # Calculate the sarbeco conservation
+            n_sar = 0
+            for seq_id, seq in sar_seqs_dict.items():
+                if kmer in seq:
+                    n_sar += 1
+            cons_sar = n_sar / N_sar * 100
+            # Calculate the merbeco conservation
+            n_mer = 0
+            for seq_id, seq in mer_seqs_dict.items():
+                if kmer in seq:
+                    n_mer += 1
+            cons_mer = n_mer / N_mer * 100
         # Get the population coverage
         pop_cov_mhc1 = f(epitope_graph, kmer, f="population_coverage_mhc1") * 100
         pop_cov_mhc2 = f(epitope_graph, kmer, f="population_coverage_mhc2") * 100
         # Add the k-mer and its scores to the dict
         kmer_scores_dict["kmer"].append(kmer)
         kmer_scores_dict["position"].append(pos)
-        kmer_scores_dict["pathogen_coverage"].append(path_cov)
+        kmer_scores_dict["conservation_total"].append(cons_tot)
         kmer_scores_dict["population_coverage_mhc1"].append(pop_cov_mhc1)
         kmer_scores_dict["population_coverage_mhc2"].append(pop_cov_mhc2)
+        if config is not None:
+            kmer_scores_dict["conservation_sarbeco"].append(cons_sar)
+            kmer_scores_dict["conservation_merbeco"].append(cons_mer)
 
     # Convert the dict to a dataframe
     kmer_scores_df = pd.DataFrame(kmer_scores_dict)

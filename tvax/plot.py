@@ -712,6 +712,7 @@ def plot_predicted_hits_barplot(
 def plot_annot_cov_by_pos(
     record: GraphicRecord,
     kmer_scores_df: pd.DataFrame,
+    plot_sar_mer: bool = False,
     out_path: str = "data/figures/cov_by_pos.png",
 ) -> None:
     """
@@ -730,10 +731,30 @@ def plot_annot_cov_by_pos(
     sns.lineplot(
         data=kmer_scores_df,
         x="position",
-        y="pathogen_coverage",
-        label="Pathogen Coverage",
+        y="conservation_total",
+        label="Conservation (Total)",
         ax=ax2,
+        # color="red",
     )
+    if plot_sar_mer:
+        sns.lineplot(
+            data=kmer_scores_df,
+            x="position",
+            y="conservation_sarbeco",
+            label="Conservation (Sarbeco)",
+            ax=ax2,
+            color=sns.xkcd_rgb["lightish blue"],
+            linestyle="dashed",
+        )
+        sns.lineplot(
+            data=kmer_scores_df,
+            x="position",
+            y="conservation_merbeco",
+            label="Conservation (Merbeco)",
+            ax=ax2,
+            color=sns.xkcd_rgb["darkish blue"],
+            linestyle="dashed",
+        )
     sns.lineplot(
         data=kmer_scores_df,
         x="position",
@@ -751,9 +772,9 @@ def plot_annot_cov_by_pos(
     # Set axis limits and labels
     plt.xlim(0, kmer_scores_df["position"].max())
     plt.ylim(0, 100)
-    plt.xlabel("Amino Acid Position")
-    plt.ylabel("Coverage (%)")
-    plt.legend()
+    plt.xlabel("Amino Acid Position in CITVax Vaccine Design")
+    plt.ylabel("K-mer Score (%)")
+    plt.legend(bbox_to_anchor=(1.01, 0.8), loc=2, borderaxespad=0.0)
     plt.tight_layout()
 
     # Save the plot
