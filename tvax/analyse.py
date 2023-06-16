@@ -1,6 +1,7 @@
 import networkx as nx
 import os
 import pandas as pd
+from pathlib import Path
 import subprocess
 
 from dna_features_viewer import GraphicFeature, GraphicRecord
@@ -14,8 +15,8 @@ from tvax.eval import (
 )
 from tvax.graph import build_epitope_graph, f
 from tvax.plot import plot_population_coverage, plot_pop_cov_lineplot
-from tvax.score import transform_affinity
-from tvax.seq import load_fasta, path_to_seq, seq_to_kmers
+from tvax.score import transform_affinity, add_population_coverage
+from tvax.seq import load_fasta, path_to_seq, seq_to_kmers, kmerise, kmerise_simple
 from typing import Tuple
 
 
@@ -227,68 +228,85 @@ def compare_antigens(
     return path_cov_df, pop_cov_df
 
 
-#######################
-# Compare to wild-types
-#######################
+###############################################
+# Comparison to wild-types and existing methods
+###############################################
 
 
-def betacov_strains_dict() -> dict:
-    """
-    Return a dictionary of betacoronavirus strains and their names.
-    """
-    return {
-        "QHR63308_1_nucleocapsid_protein_Bat_coronavirus_RaTG13_Rhinolophus_affinis": "RaTG13",
-        "YP_009825061_1_nucleocapsid_protein_SARS_coronavirus_Tor2_Homo_sapiens": "SARS",
-        "YP_009047211.1": "MERS",
-    }
-
-
-def h3_strains_dict() -> dict:
-    """
-    Returns a dictionary of influenza virus H3 strains and their names.
-    """
-    return {
-        "AIE52620_Human_2011": "A/Victoria/361/2011",
-        "AJK01027_Human_2009": "A/Victoria/210/2009",
-        "AJK02592_Human_2009": "A/Perth/16/2009",
-        "ABW80978_Human_2005": "A/Wisconsin/67/2005",
-    }
-
-
-def compare_to_wts(
-    config: EpitopeGraphConfig,
-    strains_dict: dict = betacov_strains_dict(),
+def compare_vaccine_design(
+    params: dict,
+    fasta_path: Path = Path("data/mice_mhcs/NP_designs_June2023.txt"),
+    updated_immune_scores_mhc1_path: Path = Path(
+        "data/results/MHC_Binding/sar_mer_nuc_protein_immune_scores_ensemble_updated.pkl"
+    ),
+    updated_immune_scores_mhc2_path: Path = Path(
+        "data/results/MHC_Binding/sar_mer_nuc_protein_immune_scores_netmhcii_updated.pkl"
+    ),
     n_targets: list = list(range(0, 11)),
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Compare vaccine
+    Compare sequences coverage metrics e.g. CITVax vaccine design to wild-type sequences and existing methods.
     """
-    # Design vaccine
-    epitope_graph = build_epitope_graph(config)
-    vaccine_designs = design_vaccines(epitope_graph, config)
+    config = EpitopeGraphConfig(**params)
+    seqs_dict = load_fasta(fasta_path)
 
-    # Load all seqs
-    seqs_dict = load_fasta(config.fasta_path)
+    # Split into k-mers
+    clades_dict = {seq_id: 1 for seq_id in seqs_dict}
+    kmers_dict = kmerise(seqs_dict, clades_dict, config.k)
 
-    # Filter to keep seqs of interest
-    seqs_dict = {
-        seq_id: seqs_dict[seq_id]
-        for seq_id in seqs_dict
-        if seq_id in strains_dict.keys()
+    # Get k-mers without existing predictions
+    overlap_haplotypes = pd.read_pickle(config.immune_scores_mhc1_path)
+    kmers_dict = {
+        kmer: v
+        for kmer, v in kmers_dict.items()
+        if kmer not in overlap_haplotypes.index
     }
 
-    # Add the vaccine design to the dicts
-    seqs_dict["citvax_design"] = path_to_seq(vaccine_designs[0])
-    strains_dict["citvax_design"] = "CITVax Design"
+    # Get existing immune score paths
+    immune_scores_mhc1_path = config.immune_scores_mhc1_path
+    immune_scores_mhc2_path = config.immune_scores_mhc2_path
+
+    # Predict binding using MHCflurry and NetMHCpan for these k-mers
+    params_to_change = {
+        "prefix": "betacov_n_updated",
+        "results_dir": Path("data/results_betacov_n_updated"),
+    }
+    # Update the params dict using params_to_change
+    params.update(params_to_change)
+    config = EpitopeGraphConfig(**params)
+
+    # Predict binding using MHCflurry and NetMHCpan for these k-mers
+    kmers_dict = add_population_coverage(kmers_dict, config, "mhc1")
+    kmers_dict = add_population_coverage(kmers_dict, config, "mhc2")
+
+    # Update the immune scores
+    exist_immune_scores_mhc1 = pd.read_pickle(immune_scores_mhc1_path)
+    exist_immune_scores_mhc2 = pd.read_pickle(immune_scores_mhc2_path)
+    new_immune_scores_mhc1 = pd.read_pickle(config.immune_scores_mhc1_path)
+    new_immune_scores_mhc2 = pd.read_pickle(config.immune_scores_mhc2_path)
+    immune_scores_mhc1 = pd.concat([exist_immune_scores_mhc1, new_immune_scores_mhc1])
+    immune_scores_mhc2 = pd.concat([exist_immune_scores_mhc2, new_immune_scores_mhc2])
+
+    # Save the updated immune scores
+    immune_scores_mhc1.to_pickle(updated_immune_scores_mhc1_path)
+    immune_scores_mhc2.to_pickle(updated_immune_scores_mhc2_path)
+
+    # Use the updated immune scores
+    params_to_change = {
+        "immune_scores_mhc1_path": updated_immune_scores_mhc1_path,
+        "immune_scores_mhc2_path": updated_immune_scores_mhc2_path,
+    }
+    params.update(params_to_change)
+    config = EpitopeGraphConfig(**params)
 
     # Create empty lists to store the results
     path_cov_dfs = []
     pop_cov_dfs = []
 
     for seq_id, seq in seqs_dict.items():
-        seq_name = strains_dict[seq_id]
+        seq_name = seq_id
         # Convert seqs to k-mers
-        kmers = seq_to_kmers(seq, config.k, epitope_graph)
+        kmers = kmerise_simple(seq, config.k)
         # Compute metrics for each seq
         path_cov_df, pop_cov_df = compute_coverages(kmers, config, seq_name, n_targets)
         # Append to lists
