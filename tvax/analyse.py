@@ -1,3 +1,4 @@
+import concurrent.futures
 import networkx as nx
 import os
 import pandas as pd
@@ -36,17 +37,88 @@ def weights() -> list:
     return [0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 25.6, 51.2]
 
 
-def run_parameter_sweep(
+def run_parameter_sweep_parallel(
     params: dict,
     w_cons: int = 1,
     w_mhc1_lst: list = weights(),
     w_mhc2_lst: list = weights(),
     n_targets: list = list(range(0, 11)),
-    results_path: str = "data/param_sweep_betacov_n.csv",
+    results_path: str = "data/param_sweep_ortho_h3.csv",
+    num_threads: int = 4,
 ) -> pd.DataFrame:
     """
     Run a parameter sweep over the weights for the population coverage.
     """
+
+    def process_weight(w_mhc1, w_mhc2):
+        # Create empty dataframe
+        df = pd.DataFrame(
+            {
+                "vaccine_seq": [],
+                "w_cons": [],
+                "w_mhc1": [],
+                "w_mhc2": [],
+                "path_cov": [],
+            }
+        )
+        for n_target in n_targets:
+            df[f"pop_cov_mhc1_n_{n_target}"] = []
+            df[f"pop_cov_mhc2_n_{n_target}"] = []
+
+        params["weights"] = {
+            "frequency": w_cons,
+            "population_coverage_mhc1": w_mhc1,
+            "population_coverage_mhc2": w_mhc2,
+        }
+        config = EpitopeGraphConfig(**params)
+        epitope_graph = build_epitope_graph(config)
+        vaccine_designs = design_vaccines(epitope_graph, config)
+        vaccine_seq = [path_to_seq(path) for path in vaccine_designs][0]
+
+        vaccine_designs = design_vaccines(epitope_graph, config)
+        vaccine_kmers = seq_to_kmers(
+            path_to_seq(vaccine_designs[0]), config.k, epitope_graph
+        )
+        # Compute the coverages
+        path_cov_df = compute_pathogen_coverages(vaccine_kmers, config)
+        path_cov = compute_av_pathogen_coverage(vaccine_kmers, config)
+        # Record population coverage for different values of n for Class I and II
+        figs, pop_cov_df = plot_population_coverage(
+            vaccine_kmers,
+            n_targets=n_targets,
+            config=config,
+        )
+        # Select rows where ancestry is Average
+        pop_cov_df = pop_cov_df[pop_cov_df["ancestry"] == "Average"]
+
+        # Append to dataframe
+        df = df.append(
+            {
+                "vaccine_seq": vaccine_seq,
+                "w_cons": w_cons,
+                "w_mhc1": w_mhc1,
+                "w_mhc2": w_mhc2,
+                "path_cov": path_cov,
+                **{
+                    f"pop_cov_mhc1_n_{n_target}": pop_cov_df[
+                        (pop_cov_df["mhc_type"] == "mhc1")
+                        & (pop_cov_df["n_target"] == f"n ≥ {n_target}")
+                    ]["pop_cov"].values[0]
+                    for n_target in n_targets
+                },
+                **{
+                    f"pop_cov_mhc2_n_{n_target}": pop_cov_df[
+                        (pop_cov_df["mhc_type"] == "mhc2")
+                        & (pop_cov_df["n_target"] == f"n ≥ {n_target}")
+                    ]["pop_cov"].values[0]
+                    for n_target in n_targets
+                },
+            },
+            ignore_index=True,
+        )
+        df.to_csv(results_path, index=False)
+        return df
+
     # Create empty dataframe
     df = pd.DataFrame(
         {
@@ -61,60 +133,20 @@ def run_parameter_sweep(
         df[f"pop_cov_mhc1_n_{n_target}"] = []
         df[f"pop_cov_mhc2_n_{n_target}"] = []
 
-    for w_mhc1 in w_mhc1_lst:
-        for w_mhc2 in w_mhc2_lst:
-            params["weights"] = {
-                "frequency": w_cons,
-                "population_coverage_mhc1": w_mhc1,
-                "population_coverage_mhc2": w_mhc2,
-            }
-            config = EpitopeGraphConfig(**params)
-            epitope_graph = build_epitope_graph(config)
-            vaccine_designs = design_vaccines(epitope_graph, config)
-            vaccine_seq = [path_to_seq(path) for path in vaccine_designs][0]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        # Submit tasks for each combination of w_mhc1 and w_mhc2
+        futures = [
+            executor.submit(process_weight, w_mhc1, w_mhc2)
+            for w_mhc1 in w_mhc1_lst
+            for w_mhc2 in w_mhc2_lst
+        ]
 
-            vaccine_designs = design_vaccines(epitope_graph, config)
-            vaccine_kmers = seq_to_kmers(
-                path_to_seq(vaccine_designs[0]), config.k, epitope_graph
-            )
-            # Compute the coverages
-            path_cov_df = compute_pathogen_coverages(vaccine_kmers, config)
-            path_cov = compute_av_pathogen_coverage(vaccine_kmers, config)
-            # Record population coverage for different values of n for Class I and II
-            figs, pop_cov_df = plot_population_coverage(
-                vaccine_kmers,
-                n_targets=n_targets,
-                config=config,
-            )
-            # Select rows where ancestry is Average
-            pop_cov_df = pop_cov_df[pop_cov_df["ancestry"] == "Average"]
-
-            # Append to dataframe
-            df = df.append(
-                {
-                    "vaccine_seq": vaccine_seq,
-                    "w_cons": w_cons,
-                    "w_mhc1": w_mhc1,
-                    "w_mhc2": w_mhc2,
-                    "path_cov": path_cov,
-                    **{
-                        f"pop_cov_mhc1_n_{n_target}": pop_cov_df[
-                            (pop_cov_df["mhc_type"] == "mhc1")
-                            & (pop_cov_df["n_target"] == f"n ≥ {n_target}")
-                        ]["pop_cov"].values[0]
-                        for n_target in n_targets
-                    },
-                    **{
-                        f"pop_cov_mhc2_n_{n_target}": pop_cov_df[
-                            (pop_cov_df["mhc_type"] == "mhc2")
-                            & (pop_cov_df["n_target"] == f"n ≥ {n_target}")
-                        ]["pop_cov"].values[0]
-                        for n_target in n_targets
-                    },
-                },
-                ignore_index=True,
-            )
+        # Process the results as they become available
+        for future in concurrent.futures.as_completed(futures):
+            result = future.result()
+            df = df.append(result, ignore_index=True)
             df.to_csv(results_path, index=False)
+
     return df
 
 
