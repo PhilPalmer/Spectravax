@@ -457,46 +457,76 @@ def compare_citvax_methods(
     plot_pop_cov_lineplot(pop_cov_df, mhc_type="mhc2", hue="method")
 
 
-################################################################
-# Predict the number of hits in mice for each experimental group
-################################################################
+##########################################################
+# Predict the number of hits for sequences in a FASTA file
+##########################################################
 
 
-def pred_n_hits(
+def get_hla_alleles(config: EpitopeGraphConfig) -> dict:
+    """
+    Returns a dictionary of HLA alleles for MHC1 and MHC2.
+    """
+    mhc1_alleles = pd.read_csv(
+        config.mhc1_alleles_path, sep="\t", header=None, names=["allele"]
+    )
+    mhc2_alleles = pd.read_csv(
+        config.mhc2_alleles_path, sep="\t", header=None, names=["allele"]
+    )
+    return {
+        "mhc1": mhc1_alleles["allele"].tolist(),
+        "mhc2": mhc2_alleles["allele"].tolist(),
+    }
+
+
+def pred_n_hits_parallel(
     workdir: str = "data/mice_mhcs",
-    fasta_name: str = "NP_designs_June2023.txt",
+    fasta_path: str = "data/mice_mhcs/NP_designs_June2023.txt",
     mhc_alleles: dict = {"mhc1": ["H-2-Kb", "H-2-Db"], "mhc2": ["H-2-IAb"]},
+    num_threads: int = 4,
 ):
     """
     Predict the number of hits for all sequences in a FASTA file.
     """
-    fasta_path = f"{workdir}/{fasta_name}"
     dfs = []
-    for mhc_class, alleles in mhc_alleles.items():
-        for allele in alleles:
-            netmhcpan_cmd = "netMHCpan" if mhc_class == "mhc1" else "netMHCIIpan"
-            outpath = f"{workdir}/{allele.replace('-', '')}_{mhc_class}_predictions.txt"
-            cmd = f"{netmhcpan_cmd} -f {fasta_path} -a {allele} -BA -xls -xlsfile {outpath}"
-            subprocess.run(cmd, shell=True)
 
-            # Read in and process the predictions into a dataframe
-            df = pd.read_csv(outpath, delimiter="\t", skiprows=[0])
-            df["mhc_class"] = mhc_class
-            df["allele"] = allele
-            df = df.rename(
-                columns={
-                    "Peptide": "peptide",
-                    "Core": "core",
-                    "Score_BA": "BA-score",
-                    "Rank_BA": "BA_Rank",
-                    "Score": "EL-score",
-                    "Rank": "EL_Rank",
-                }
-            )
-            if "nM" not in df.columns:
-                df["nM"] = 50000 ** (1 - df["BA-score"])
-            df["transformed_affinity"] = df["nM"].apply(transform_affinity)
-            dfs.append(df)
+    def process_allele(mhc_class, allele):
+        netmhcpan_cmd = "netMHCpan" if mhc_class == "mhc1" else "netMHCIIpan"
+        allele_clean = allele.replace("*", "_").replace(":", "").replace("-", "")
+        outpath = f"{workdir}/{allele_clean}_{mhc_class}_predictions.txt"
+        cmd = f"{netmhcpan_cmd} -f {fasta_path} -a {allele} -BA -xls -xlsfile {outpath}"
+        subprocess.run(cmd, shell=True)
+
+        # Read in and process the predictions into a dataframe
+        df = pd.read_csv(outpath, delimiter="\t", skiprows=[0])
+        df["mhc_class"] = mhc_class
+        df["allele"] = allele
+        df = df.rename(
+            columns={
+                "Peptide": "peptide",
+                "Core": "core",
+                "Score_BA": "BA-score",
+                "Rank_BA": "BA_Rank",
+                "Score": "EL-score",
+                "Rank": "EL_Rank",
+            }
+        )
+        if "nM" not in df.columns:
+            df["nM"] = 50000 ** (1 - df["BA-score"])
+        df["transformed_affinity"] = df["nM"].apply(transform_affinity)
+        return df
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        # Submit tasks for each combination of mhc_class and allele
+        futures = [
+            executor.submit(process_allele, mhc_class, allele)
+            for mhc_class, alleles in mhc_alleles.items()
+            for allele in alleles
+        ]
+
+        # Process the results as they become available
+        for future in concurrent.futures.as_completed(futures):
+            result = future.result()
+            dfs.append(result)
 
     # Create a dataframe of the number of strong and weak binders for each vaccine design
     pmhc_aff = pd.concat(dfs)
@@ -513,6 +543,7 @@ def pred_n_hits(
             )
             n_strong_binders = len(df[df["BA_Rank"] < strong_affinity_cutoff])
             n_weak_binders = len(df[df["BA_Rank"] < weak_affinity_cutoff])
+            # TODO: Add a column for the number of epitopes found in IEDB
             binders_df = binders_df.append(
                 {
                     "ID": id,
