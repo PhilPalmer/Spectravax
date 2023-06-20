@@ -509,65 +509,91 @@ def plot_population_coverage(
 
 
 def plot_parameter_sweep_surface(
-    target_protein: str = "n",
+    antigens=["n", "nsp12", "h3", "n1"],
     x: str = "w_mhc1",
     y: str = "w_mhc2",
-    z: str = "pop_cov_mhc1_n_5",
-    z_label: str = "Population coverage MHC Class I n ≥ 5 (%)",
-    param_sweep_path: str = None,
-    out_path: str = None,
+    zs=["av_cov", "path_cov", "pop_cov_mhc1_n_5", "pop_cov_mhc2_n_5"],
+    z_labels=[
+        "Average Coverage (%)",
+        "Pathogen Coverage (%)",
+        "Population Coverage MHC-I n ≥ 5 (%)",
+        "Population Coverage MHC-II n ≥ 5 (%)",
+    ],
+    out_path="data/figures/param_sweep_surface.png",
 ) -> None:
     """
     Plot parameter sweep 3D surface plot
     """
-    if param_sweep_path is None:
-        param_sweep_path = f"data/param_sweep_betacov_{target_protein}.csv"
-    if out_path is None:
-        out_path = f"data/figures/param_sweep_surface_{target_protein}_{z}.png"
-
-    # Load data
-    df = pd.read_csv(param_sweep_path)
-    covs = ["pop_cov_mhc1_n_5", "pop_cov_mhc2_n_5", "path_cov"]
-    df["av_cov"] = df[covs].mean(axis=1)
-
-    # Increase the resolution of the grid
-    x_unique = np.linspace(df[x].min(), df[x].max(), 100)
-    y_unique = np.linspace(df[y].min(), df[y].max(), 100)
-    x_grid, y_grid = np.meshgrid(x_unique, y_unique)
-    z_grid = griddata((df[x], df[y]), df[z], (x_grid, y_grid), method="linear")
-    df_grid = pd.DataFrame({x: x_grid.ravel(), y: y_grid.ravel(), z: z_grid.ravel()})
-
-    # Generate plot
-    fig = plt.figure(figsize=(10, 10))
-    ax = fig.add_subplot(111, projection="3d")
-    # Trisurf plot
-    # ax.plot_trisurf(
-    #     df[x],
-    #     df[y],
-    #     df[z],
-    #     cmap=cm.viridis,
-    #     linewidth=0.2,
-    #     antialiased=True,
-    # )
-    ax.plot_surface(
-        x_grid, y_grid, z_grid, cmap="viridis", linewidth=0.5, vmin=0, vmax=100
+    # Plot a grid of 3D surface plots
+    fig, ax = plt.subplots(
+        len(zs), len(antigens), figsize=(20, 20), subplot_kw={"projection": "3d"}
     )
-    ax.contour(
-        x_grid,
-        y_grid,
-        z_grid,
-        10,
-        lw=3,
-        cmap="viridis",
-        linestyles="solid",
-        offset=-1,
-        vmin=0,
-        vmax=100,
-    )
-    ax.set_zlim(0, 100)
-    ax.set_xlabel("Population Coverage MHC Class I Weight ($w_{mhc1}$)")
-    ax.set_ylabel("Population Coverage MHC Class II Weight ($w_{mhc2}$)")
-    ax.set_zlabel(z_label)
+    fig.subplots_adjust(wspace=0.1, hspace=0.1)
+
+    # Generate the surface plot for each antigen
+    for i, antigen in enumerate(antigens):
+        for j, z in enumerate(zs):
+            param_sweep_path = f"data/param_sweep_{antigen}.csv"
+
+            # Load data
+            df = pd.read_csv(param_sweep_path)
+            covs = ["pop_cov_mhc1_n_5", "pop_cov_mhc2_n_5", "path_cov"]
+            df["av_cov"] = df[covs].mean(axis=1)
+
+            # Increase the resolution of the grid
+            x_unique = np.linspace(df[x].min(), df[x].max(), 100)
+            y_unique = np.linspace(df[y].min(), df[y].max(), 100)
+            x_grid, y_grid = np.meshgrid(x_unique, y_unique)
+            z_grid = griddata((df[x], df[y]), df[z], (x_grid, y_grid), method="linear")
+            df_grid = pd.DataFrame(
+                {x: x_grid.ravel(), y: y_grid.ravel(), z: z_grid.ravel()}
+            )
+
+            # Plot the chosen point, surface, and contour
+            ax[j, i].plot(
+                [20],
+                [10],
+                [z_grid[10, 20]],
+                markerfacecolor="black",
+                markeredgecolor="black",
+                marker="o",
+                alpha=1,
+                markersize=7.5,
+                zorder=20,
+            )
+            ax[j, i].plot_surface(
+                x_grid,
+                y_grid,
+                z_grid,
+                cmap=cm.viridis,
+                linewidth=0,
+                vmin=0,
+                vmax=100,
+                antialiased=True,
+                zorder=1,
+            )
+            ax[j, i].contour(
+                x_grid,
+                y_grid,
+                z_grid,
+                10,
+                cmap="viridis",
+                linestyles="solid",
+                offset=-1,
+                vmin=0,
+                vmax=100,
+                zorder=0,
+            )
+            # Set the axis limits, labels, and title
+            ax[j, i].set_zlim(0, 100)
+            ax[j, i].set_xlabel("$w_{mhc1}$")
+            ax[j, i].set_ylabel("$w_{mhc2}$")
+            if i == len(antigens) - 1:
+                ax[j, i].set_zlabel(z_labels[j])
+            if j == 0:
+                ax[j, i].set_title(f"{antigen.upper()}")
+
+    # Save the plot
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
 
 
