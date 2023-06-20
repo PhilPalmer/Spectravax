@@ -43,7 +43,7 @@ def run_parameter_sweep_parallel(
     w_mhc1_lst: list = weights(),
     w_mhc2_lst: list = weights(),
     n_targets: list = list(range(0, 11)),
-    results_path: str = "data/param_sweep_ortho_h3.csv",
+    results_path: str = "data/param_sweep_h3.csv",
     num_threads: int = 4,
 ) -> pd.DataFrame:
     """
