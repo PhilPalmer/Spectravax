@@ -709,12 +709,17 @@ def plot_predicted_hits_barplot(
         binders_df,
         col="mhc_class",
         hue="binding_threshold",
-        hue_order=["Weak", "Strong", "Very Strong (<50nM)"],
+        hue_order=[
+            "Weak",
+            "Strong",
+            "Very Strong (<50nM)",
+            "Experimentally Observed (IEDB)",
+        ],
         col_wrap=2,
         height=4,
         aspect=1.5,
     )
-    g.map(sns.barplot, "ID", "hits").add_legend()
+    g.map(sns.barplot, "ID", "hits", order=sorted(binders_df.ID.unique())).add_legend()
 
     # Add labels
     g.fig.subplots_adjust(wspace=0.1)

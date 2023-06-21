@@ -482,7 +482,10 @@ def pred_n_hits_parallel(
     workdir: str = "data/mice_mhcs",
     fasta_path: str = "data/mice_mhcs/NP_designs_June2023.txt",
     mhc_alleles: dict = {"mhc1": ["H-2-Kb", "H-2-Db"], "mhc2": ["H-2-IAb"]},
+    mhc1_epitopes_path: str = "data/input/mhc1_epitopes.csv",
+    mhc2_epitopes_path: str = "data/input/mhc2_epitopes.csv",
     num_threads: int = 4,
+    out_path: str = None,
 ):
     """
     Predict the number of hits for all sequences in a FASTA file.
@@ -528,9 +531,15 @@ def pred_n_hits_parallel(
             result = future.result()
             dfs.append(result)
 
-    # Create a dataframe of the number of strong and weak binders for each vaccine design
+    # Create a dataframe of the number of epitopes, <50nm, strong and weak binders for each vaccine design
     pmhc_aff = pd.concat(dfs)
     binders_df = pd.DataFrame(columns=["ID", "mhc_class", "<50nM", "strong", "weak"])
+
+    if mhc1_epitopes_path is not None and mhc2_epitopes_path is not None:
+        mhc1_epitopes = pd.read_csv(mhc1_epitopes_path, header=1)
+        mhc2_epitopes = pd.read_csv(mhc2_epitopes_path, header=1)
+        mhc1_epitopes = set(mhc1_epitopes["Name"].tolist())
+        mhc2_epitopes = set(mhc2_epitopes["Name"].tolist())
 
     for id in pmhc_aff.ID.unique():
         for mhc in mhc_alleles.keys():
@@ -538,6 +547,14 @@ def pred_n_hits_parallel(
             vstrong_affinity_cutoff = 0.638
             strong_affinity_cutoff = 0.5 if mhc == "mhc1" else 1.0
             weak_affinity_cutoff = 2.0 if mhc == "mhc1" else 5.0
+            if mhc == "mhc1":
+                n_epitopes = int(
+                    len([m for m in df["peptide"].unique() if m in mhc1_epitopes])
+                )
+            else:
+                n_epitopes = int(
+                    len([m for m in df["peptide"].unique() if m in mhc2_epitopes])
+                )
             n_vstrong_binders = len(
                 df[df["transformed_affinity"] > vstrong_affinity_cutoff]
             )
@@ -551,6 +568,7 @@ def pred_n_hits_parallel(
                     "weak": n_weak_binders,
                     "strong": n_strong_binders,
                     "<50nM": n_vstrong_binders,
+                    "epitope": n_epitopes,
                 },
                 ignore_index=True,
             )
@@ -563,9 +581,19 @@ def pred_n_hits_parallel(
         {"mhc1": "MHC Class I", "mhc2": "MHC Class II"}
     )
     binders_df["binding_threshold"] = binders_df["binding_threshold"].replace(
-        {"<50nM": "Very Strong (<50nM)", "strong": "Strong", "weak": "Weak"}
+        {
+            "epitope": "Experimentally Observed (IEDB)",
+            "<50nM": "Very Strong (<50nM)",
+            "strong": "Strong",
+            "weak": "Weak",
+        }
     )
     binders_df["ID"] = binders_df["ID"].replace({"CITVax_dStab": "CITVax-dStab"})
+
+    if out_path is None:
+        out_path = f"{workdir}/pred_hits.csv"
+    binders_df.to_csv(out_path, index=False)
+
     return binders_df
 
 
