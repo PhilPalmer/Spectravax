@@ -724,7 +724,8 @@ def plot_predicted_hits_barplot(
     # Add labels
     g.fig.subplots_adjust(wspace=0.1)
     g.despine(left=True)
-    g.set_axis_labels("", "Number of peptide-H-2 hits")
+    mhc = "H-2" if "mice" in out_path else "HLA"
+    g.set_axis_labels("", f"Number of peptide-{mhc} hits")
     g.legend.set_title("Binding threshold")
     g.set_titles("{col_name}")
     # Rotate the x-axis labels
