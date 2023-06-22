@@ -462,6 +462,31 @@ def compare_citvax_methods(
 ##########################################################
 
 
+def pred_human_n_hits(config: EpitopeGraphConfig) -> pd.DataFrame:
+    """
+    Predict the number of peptide-HLA hits for the human population.
+    """
+    return pred_n_hits_parallel(
+        workdir="data/human_mhcs",
+        fasta_path="data/mice_mhcs/NP_designs_June2023.txt",
+        mhc_alleles=get_hla_alleles(config),
+        mhc1_epitopes_path="data/input/epitopes_human_mhc1.csv",
+        mhc2_epitopes_path="data/input/epitopes_human_mhc2.csv",
+    )
+
+
+def pred_mouse_n_hits() -> pd.DataFrame:
+    """
+    Predict the number of peptide-H-2 hits for C57BL/6 mice.
+    """
+    return pred_n_hits_parallel(
+        workdir="data/mice_mhcs",
+        fasta_path="data/mice_mhcs/NP_designs_June2023.txt",
+        mhc1_epitopes_path="data/input/epitopes_mice_c57bl6_mhc1.csv",
+        mhc2_epitopes_path="data/input/epitopes_mice_c57bl6_mhc2.csv",
+    )
+
+
 def get_hla_alleles(config: EpitopeGraphConfig) -> dict:
     """
     Returns a dictionary of HLA alleles for MHC1 and MHC2.
