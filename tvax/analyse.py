@@ -260,6 +260,74 @@ def compare_antigens(
     return path_cov_df, pop_cov_df
 
 
+def construct_antigen_graphs(
+    params: dict,
+    antigens_dict: dict = antigens_dict(),
+) -> dict:
+    # Create an empty dictionary to store the graphs
+    antigen_graphs = {}
+    # Construct k-mer graph for each antigen
+    for antigen, antigen_dict in antigens_dict.items():
+        antigen = antigen.replace("_", " ").replace("RBD", "S RBD")
+        params["fasta_path"] = antigen_dict["fasta_path"]
+        params["results_dir"] = antigen_dict["results_dir"]
+        config = EpitopeGraphConfig(**params)
+        epitope_graph = build_epitope_graph(config)
+        antigen_graphs[antigen] = epitope_graph
+    return antigen_graphs
+
+
+def compute_antigen_scores(
+    params: dict,
+    config: EpitopeGraphConfig,
+) -> dict:
+    """
+    Compute the scores for each antigen
+    """
+    # Create an empty dictionary to store the scores
+    scores_dict = {}
+
+    # Compute antigen graphs
+    antigen_graphs = construct_antigen_graphs(params, antigens_dict())
+
+    # Get the scores for each antigen
+    for antigen, G in antigen_graphs.items():
+        scores_dict[antigen] = {
+            "f_cons": [],
+            "f_mhc1": [],
+            "f_mhc2": [],
+            "f": [],
+            "f_clade_adjusted": [],
+            "f_scaled": [],
+        }
+
+        for _, data in G.nodes(data=True):
+            f_cons = data["frequency"]
+            f_mhc1 = data["population_coverage_mhc1"]
+            f_mhc2 = data["population_coverage_mhc2"]
+            f = sum(
+                [data[name] * val for name, val in config.weights if val > 0]
+            ) / sum(config.weights.dict().values())
+            w_clade = data["clade_weight"]
+            f_clade_adjusted = f * w_clade
+            # Save the scores
+            scores_dict[antigen]["f_cons"].append(f_cons)
+            scores_dict[antigen]["f_mhc1"].append(f_mhc1)
+            scores_dict[antigen]["f_mhc2"].append(f_mhc2)
+            scores_dict[antigen]["f"].append(f)
+            scores_dict[antigen]["f_clade_adjusted"].append(f_clade_adjusted)
+        # Min-max scale the scores
+        minmax_scaler = MinMaxScaler()
+        scores_dict[antigen]["f_scaled"] = (
+            minmax_scaler.fit_transform(
+                np.array(scores_dict[antigen]["f_clade_adjusted"]).reshape(-1, 1)
+            )
+            .reshape(-1)
+            .tolist()
+        )
+        return scores_dict
+
+
 ###############################################
 # Comparison to wild-types and existing methods
 ###############################################

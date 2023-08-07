@@ -183,6 +183,62 @@ def plot_scores(
     return fig, score_dict
 
 
+def plot_antigen_scores(
+    scores_dict: dict, out_path: str = "data/figures/scores_distribution.svg"
+) -> None:
+    df = pd.DataFrame(scores_dict)
+    score_names = {
+        "f_cons": "Conservation score ($f_{cons}$)",
+        "f_mhc1": "MHC-I host coverage score ($f_{mhc1}$)",
+        "f_mhc2": "MHC-II host coverage score ($f_{mhc2}$)",
+        "f": "Total weighted score ($f$)",
+        "f_clade_adjusted": "Clade adjusted score ($f_{clade\_adjusted}$)",
+        "f_scaled": "Scaled score ($f_{scaled}$)",
+    }
+
+    # Set seaborn theme and style
+    sns.set_theme(style="whitegrid")
+    sns.set_palette("colorblind")
+
+    # Create subplots
+    fig, axes = plt.subplots(
+        nrows=len(df.index), ncols=1, figsize=(10, 15), sharex=False, sharey=False
+    )
+
+    # Define a function to generate x values for the KDE plot
+    def _generate_x(data, num_points=1000):
+        return np.linspace(min(data), max(data), num_points)
+
+    # Iterate over each score (row in the DataFrame)
+    for row, score in enumerate(df.index):
+        # Iterate over each antigen (column in the DataFrame)
+        for antigen in df.columns:
+            # Get data
+            data = df.loc[score, antigen]
+            # Compute KDE
+            kde = stats.gaussian_kde(data)
+            # Generate x values
+            x_values = _generate_x(data)
+            # Compute density values
+            density = kde(x_values)
+            # Convert density to count
+            count = density * len(data)
+            # Plot count
+            axes[row].plot(x_values, count, label=antigen)
+            axes[row].fill_between(x_values, count, alpha=0.5)
+
+        # Set title, labels and x-limits
+        axes[row].ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+        axes[row].set_xlabel(score_names.get(score, score))
+        axes[row].set_ylabel("Number of k-mers")
+        axes[row].legend()
+        axes[row].set_xlim([0, 1])
+
+    # Save the plot
+    plt.tight_layout()
+    plt.savefig(out_path)
+
+
 def plot_corr(
     G: nx.Graph, x: str = "frequency", y: str = "population_coverage_mhc1"
 ) -> plt.figure:
