@@ -78,13 +78,37 @@ def add_pos(G: nx.Graph, aligned: bool = False) -> nx.Graph:
     """
     Add position attribute to the graph (for plotting convenience).
     """
+
+    def _calc_path_lengths(paths: dict) -> dict:
+        """
+        Calculate the length of each path in the graph.
+        """
+        path_lengths = {}
+        # Calculate the lengths of the paths
+        for kmer, path in paths.items():
+            for mb in path:
+                k_mb = len(mb)
+                # If the current kmer is BEGIN, initialise the path length to 0
+                if mb == "BEGIN":
+                    path_len = 0
+                # If it's the first k-mer, add the length of the k-mer
+                elif ma == "BEGIN":
+                    path_len += k_mb
+                # For all additional kmers in the path, add the length of the new amino acids between the k-mers
+                else:
+                    min_k = min(len(ma), k_mb)
+                    overlap = min_k - 1
+                    path_len += k_mb - overlap
+                # Define the previous k-mer as the current k-mer
+                ma = mb
+            path_lengths[kmer] = path_len
+        return path_lengths
+
     for node in G.nodes:
         G.nodes[node]["len"] = len(node)
     if not aligned:
         paths = nx.shortest_path(G, source="BEGIN", weight="len")
-        path_lengths = {
-            kmer: sum([len(m) for m in path[1:]]) for kmer, path in paths.items()
-        }
+        path_lengths = _calc_path_lengths(paths)
         pos = {
             n: (d, f(G, n))
             for n, d in path_lengths.items()
