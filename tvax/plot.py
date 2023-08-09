@@ -221,14 +221,16 @@ def plot_antigen_scores(
             x_values = _generate_x(data)
             # Compute density values
             density = kde(x_values)
+            # Compute the width of the interval between x-values
+            dx = x_values[1] - x_values[0]
             # Convert density to count
-            count = density * len(data)
+            count = density * dx * len(data)
             # Plot count
             axes[row].plot(x_values, count, label=antigen)
             axes[row].fill_between(x_values, count, alpha=0.5)
 
         # Set title, labels and x-limits
-        axes[row].ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+        # axes[row].ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
         axes[row].set_xlabel(score_names.get(score, score))
         axes[row].set_ylabel("Number of k-mers")
         axes[row].legend()
