@@ -328,6 +328,34 @@ def compute_antigen_scores(
         return scores_dict
 
 
+def compute_antigen_summary_metrics(
+    antigens_dict: dict = antigens_dict(),
+) -> pd.DataFrame:
+    """
+    Compute summary metrics for each antigen
+    """
+    # Create empty lists to store the results
+    n_seqs = []
+    median_seq_len = []
+    # Compute the metrics for each antigen
+    for antigen, antigen_dict in antigens_dict.items():
+        fasta_path = antigen_dict["fasta_path"]
+        # Compute the number of sequences
+        n_seqs.append(len(list(SeqIO.parse(fasta_path, "fasta"))))
+        # Compute the median sequence length
+        seq_lens = [len(seq) for seq in SeqIO.parse(fasta_path, "fasta")]
+        median_seq_len.append(np.median(seq_lens))
+    # Create a dataframe
+    summary_df = pd.DataFrame(
+        {
+            "antigen": list(antigens_dict.keys()),
+            "n_seqs": n_seqs,
+            "median_seq_len": median_seq_len,
+        }
+    )
+    return summary_df
+
+
 ###############################################
 # Comparison to wild-types and existing methods
 ###############################################
