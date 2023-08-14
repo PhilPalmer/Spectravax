@@ -241,6 +241,72 @@ def plot_antigen_scores(
     plt.savefig(out_path)
 
 
+def plot_kmer_filtering(
+    n_filtered_kmers_df: pd.DataFrame, out_path: str = "data/figures/kmer_filtering.svg"
+) -> None:
+    """
+    Plot stacked bar chart showing the number of k-mers that pass each filter
+    """
+    # Create a figure
+    sns.set_style("whitegrid")
+    palette = sns.color_palette("colorblind")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.set_context("paper")
+
+    # Plot the bars
+    sns.barplot(
+        x="antigen",
+        y="n_host_kmers",
+        data=n_filtered_kmers_df,
+        color=palette[3],
+        label="Host",
+        ax=ax,
+    )
+    sns.barplot(
+        x="antigen",
+        y="n_rare_kmers",
+        data=n_filtered_kmers_df,
+        color=palette[1],
+        label="Rare",
+        ax=ax,
+    )
+    sns.barplot(
+        x="antigen",
+        y="n_passed_kmers",
+        data=n_filtered_kmers_df,
+        color=palette[2],
+        label="Passed",
+        ax=ax,
+    )
+
+    for index, row in n_filtered_kmers_df.iterrows():
+        y_pos = (
+            row["n_passed_kmers"] + 0.02 * row["n_passed_kmers"]
+            if row["n_rare_kmers"] == 0
+            else row["n_rare_kmers"] + 0.02 * row["n_rare_kmers"]
+        )
+        ax.text(
+            index,
+            y_pos,
+            str(row["n_host_kmers"]),
+            color=palette[3],
+            ha="center",
+            fontsize=12,
+        )
+
+    # Set plot properties
+    ax.set_ylabel("Number of K-mers", fontsize=18)
+    ax.set_xlabel("Antigen", fontsize=18)
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, horizontalalignment="right")
+    ax.tick_params(axis="both", which="major", labelsize=14)
+    ax.spines.right.set_visible(False)
+    ax.spines.top.set_visible(False)
+    ax.legend(fontsize=14)
+
+    # Save the figure
+    plt.savefig(out_path, bbox_inches="tight")
+
+
 def plot_corr(
     G: nx.Graph, x: str = "frequency", y: str = "population_coverage_mhc1"
 ) -> plt.figure:

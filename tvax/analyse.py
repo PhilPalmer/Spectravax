@@ -1,11 +1,14 @@
 import concurrent.futures
 import networkx as nx
+import numpy as np
 import os
 import pandas as pd
 from pathlib import Path
 import subprocess
 
+from Bio import SeqIO
 from dna_features_viewer import GraphicFeature, GraphicRecord
+from sklearn.preprocessing import MinMaxScaler
 from tvax.config import EpitopeGraphConfig, Weights
 from tvax.design import design_vaccines
 from tvax.eval import (
@@ -16,8 +19,21 @@ from tvax.eval import (
 )
 from tvax.graph import build_epitope_graph, f
 from tvax.plot import plot_population_coverage, plot_pop_cov_lineplot
-from tvax.score import transform_affinity, add_population_coverage
-from tvax.seq import load_fasta, path_to_seq, seq_to_kmers, kmerise, kmerise_simple
+from tvax.score import (
+    add_frequency_score,
+    add_population_coverage,
+    remove_host_kmers,
+    remove_kmers,
+    transform_affinity,
+)
+from tvax.seq import (
+    assign_clades,
+    kmerise,
+    kmerise_simple,
+    load_fasta,
+    path_to_seq,
+    seq_to_kmers,
+)
 from typing import Tuple
 
 
@@ -164,7 +180,7 @@ def antigens_dict():
             "fasta_path": "data/input/sar_mer_nuc_protein.fasta",
             "results_dir": "data/results",
         },
-        "Betacoronavirus_nsp12": {
+        "Coronavirinae_nsp12": {
             "fasta_path": "data/input/nsp12_protein.fa",
             "results_dir": "data/results_nsp12",
         },
@@ -325,7 +341,63 @@ def compute_antigen_scores(
             .reshape(-1)
             .tolist()
         )
-        return scores_dict
+    return scores_dict
+
+
+def compute_n_filtered_kmers(
+    params: dict,
+    antigens_dict: dict = antigens_dict(),
+) -> pd.DataFrame:
+    """
+    Compute the number of filtered k-mers for each antigen
+    """
+    # Create empty lists to store the results
+    n_filtered_kmers = {
+        "antigen": [],
+        "n_raw_kmers": [],
+        "n_rare_kmers": [],
+        "n_host_kmers": [],
+        "n_passed_kmers": [],
+    }
+    # Compute the metrics for each antigen
+    for antigen, data in antigens_dict.items():
+        n_filtered_kmers["antigen"].append(antigen)
+        # Number of raw k-mers
+        params["fasta_path"] = data["fasta_path"]
+        params["equalise_clades"] = False
+        config = EpitopeGraphConfig(**params)
+        seqs_dict = load_fasta(config.fasta_path)
+        clades_dict = assign_clades(seqs_dict, config)
+        kmers_dict = kmerise(seqs_dict, clades_dict, config.k)
+        kmers_dict = add_frequency_score(kmers_dict, len(seqs_dict))
+        n_raw_kmers = len(kmers_dict)
+        n_filtered_kmers["n_raw_kmers"].append(n_raw_kmers)
+
+        # Number of host k-mers
+        kmers_after_host_removal = remove_host_kmers(
+            kmers_dict, config.human_proteome_path, config.k
+        )
+        n_host_kmers = n_raw_kmers - len(kmers_after_host_removal)
+        n_filtered_kmers["n_host_kmers"].append(n_host_kmers)
+
+        # Number of rare (nonconserved) k-mers
+        kmers_after_rare_removal = remove_kmers(
+            kmers_after_host_removal, config.conservation_threshold
+        )
+        n_passed_kmers = len(kmers_after_rare_removal)
+        n_rare_kmers = n_raw_kmers - n_host_kmers - n_passed_kmers
+        n_filtered_kmers["n_rare_kmers"].append(n_rare_kmers)
+
+        # Number of passed k-mers
+        n_filtered_kmers["n_passed_kmers"].append(n_passed_kmers)
+
+    # Create a dataframe
+    n_filtered_kmers_df = pd.DataFrame(n_filtered_kmers)
+    n_filtered_kmers_df["antigen"] = (
+        n_filtered_kmers_df["antigen"].str.replace("_", " ").replace("RBD", "S RBD")
+    )
+
+    return n_filtered_kmers_df
 
 
 def compute_antigen_summary_metrics(
