@@ -242,7 +242,7 @@ def plot_antigen_scores(
 
 
 def plot_kmer_filtering(
-    n_filtered_kmers_df: pd.DataFrame, out_path: str = "data/figures/kmer_filtering.svg"
+    n_filtered_kmers_df: pd.DataFrame, out_path: str = None
 ) -> None:
     """
     Plot stacked bar chart showing the number of k-mers that pass each filter
