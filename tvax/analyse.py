@@ -9,7 +9,7 @@ import subprocess
 from Bio import SeqIO
 from dna_features_viewer import GraphicFeature, GraphicRecord
 from sklearn.preprocessing import MinMaxScaler
-from tvax.config import EpitopeGraphConfig, Weights
+from tvax.config import AnalysesConfig, EpitopeGraphConfig, Weights
 from tvax.design import design_vaccines
 from tvax.eval import (
     compute_eigen_dist,
@@ -18,7 +18,11 @@ from tvax.eval import (
     compute_av_pathogen_coverage,
 )
 from tvax.graph import build_epitope_graph, f
-from tvax.plot import plot_population_coverage, plot_pop_cov_lineplot
+from tvax.plot import (
+    plot_population_coverage,
+    plot_pop_cov_lineplot,
+    plot_kmer_filtering,
+)
 from tvax.score import (
     add_frequency_score,
     add_population_coverage,
@@ -40,6 +44,22 @@ from typing import Tuple
 """
 Run different analyses including a parameter sweep of potential vaccine designs.
 """
+
+###########################################
+# Define main fucntion for running analyses
+###########################################
+
+
+def run_analyses(config: AnalysesConfig, params: dict) -> None:
+    """
+    Run the analyses specified in the config.
+    """
+    if config.run_antigens_summary:
+        compute_antigen_summary_metrics(config.antigen_summary_csv)
+    if config.run_kmer_filtering:
+        n_filtered_kmers_df = compute_n_filtered_kmers(params)
+        plot_kmer_filtering(n_filtered_kmers_df, config.kmer_filtering_fig)
+
 
 #################
 # Parameter sweep
@@ -441,6 +461,7 @@ def cons_vs_path_cov(
 
 
 def compute_antigen_summary_metrics(
+    out_path=None,
     antigens_dict: dict = antigens_dict(),
 ) -> pd.DataFrame:
     """
@@ -465,6 +486,8 @@ def compute_antigen_summary_metrics(
             "median_seq_len": median_seq_len,
         }
     )
+    # Write to file
+    summary_df.to_csv(out_path, index=False)
     return summary_df
 
 
@@ -968,3 +991,34 @@ def compute_cov_by_pos(
     # Convert the dict to a dataframe
     kmer_scores_df = pd.DataFrame(kmer_scores_dict)
     return kmer_scores_df
+
+
+if __name__ == "__main__":
+    kmer_graph_params = {
+        "human_proteome_path": "data/input/human_proteome_2023.03.14.fasta.gz",
+        "mhc1_alleles_path": "../optivax/scoring/MHC1_allele_mary_cleaned.txt",
+        "mhc2_alleles_path": "../optivax/scoring/MHC2_allele_mary_cleaned.txt",
+        "hap_freq_mhc1_path": "../optivax/haplotype_frequency_marry.pkl",
+        "hap_freq_mhc2_path": "../optivax/haplotype_frequency_marry2.pkl",
+        "k": [9, 15],
+        "m": 1,
+        "n_target": 1,
+        "robust": False,
+        "aligned": False,
+        "decycle": True,
+        "equalise_clades": False,
+        "n_clusters": 1,
+        "weights": {
+            "frequency": 1,
+            "population_coverage_mhc1": 20,
+            "population_coverage_mhc2": 10,
+        },
+        "affinity_predictors": ["mhcflurry", "netmhcpan"],
+        "immune_scores_mhc1_path": "data/results_sarbeco_rbd/MHC_Binding/sarbeco_protein_RBD_immune_scores_ensemble.pkl",
+        "immune_scores_mhc2_path": "data/results_sarbeco_rbd/MHC_Binding/sarbeco_protein_RBD_immune_scores_netmhcii.pkl",
+    }
+    analyses_params = {
+        "results_dir": "data/outputs",
+    }
+    config = AnalysesConfig(**analyses_params)
+    run_analyses(config, kmer_graph_params)

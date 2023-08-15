@@ -215,3 +215,43 @@ class EpitopeGraphConfig(BaseModel):
             )
             return Path(raw_affinity_netmhcii_path)
         return value
+
+
+class AnalysesConfig(BaseModel):
+    """
+    Config Object for performing the different analyses.
+    """
+
+    results_dir: Path = None
+    # Antigens summary
+    run_antigens_summary: bool = True
+    antigen_summary_csv: Path = None
+    # K-mer filtering
+    run_kmer_filtering: bool = True
+    kmer_filtering_fig: Path = None
+
+    @validator("results_dir", pre=True, always=True)
+    def validate_results_dir(cls, value, values):
+        if value is None:
+            value = "results"
+        subdirs = ["data", "figures"]
+        for subdir in subdirs:
+            if not Path(f"{value}/{subdir}").exists():
+                Path(f"{value}/{subdir}").mkdir(parents=True, exist_ok=True)
+        return value
+
+    @validator("antigen_summary_csv", pre=True, always=True)
+    def validate_antigen_summary_csv(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            antigen_summary_csv = f"{results_dir}/data/antigen_summary.csv"
+            return Path(antigen_summary_csv)
+        return Path(value)
+
+    @validator("kmer_filtering_fig", pre=True, always=True)
+    def validate_kmer_filtering_fig(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            kmer_filtering_fig = f"{results_dir}/figures/kmer_filtering.svg"
+            return Path(kmer_filtering_fig)
+        return Path(value)
