@@ -1,4 +1,5 @@
 import concurrent.futures
+import json
 import networkx as nx
 import numpy as np
 import os
@@ -19,9 +20,10 @@ from tvax.eval import (
 )
 from tvax.graph import build_epitope_graph, f
 from tvax.plot import (
+    plot_kmer_filtering,
     plot_population_coverage,
     plot_pop_cov_lineplot,
-    plot_kmer_filtering,
+    plot_scores_distribution,
 )
 from tvax.score import (
     add_frequency_score,
@@ -59,6 +61,15 @@ def run_analyses(config: AnalysesConfig, params: dict) -> None:
     if config.run_kmer_filtering:
         n_filtered_kmers_df = compute_n_filtered_kmers(params)
         plot_kmer_filtering(n_filtered_kmers_df, config.kmer_filtering_fig)
+    if config.run_scores_distribution:
+        if config.scores_distribution_json.exists():
+            with open(config.scores_distribution_json, "r") as file:
+                scores_dict = json.load(file)
+        else:
+            scores_dict = compute_antigen_scores(
+                params, config.scores_distribution_json
+            )
+        plot_scores_distribution(scores_dict, config.scores_distribution_fig)
 
 
 #################
@@ -315,7 +326,7 @@ def construct_antigen_graphs(
 
 def compute_antigen_scores(
     params: dict,
-    config: EpitopeGraphConfig,
+    out_path: Path,
 ) -> dict:
     """
     Compute the scores for each antigen
@@ -325,6 +336,7 @@ def compute_antigen_scores(
 
     # Compute antigen graphs
     antigen_graphs = construct_antigen_graphs(params, antigens_dict())
+    config = EpitopeGraphConfig(**params)
 
     # Get the scores for each antigen
     for antigen, G in antigen_graphs.items():
@@ -361,6 +373,9 @@ def compute_antigen_scores(
             .reshape(-1)
             .tolist()
         )
+    # Save the scores to JSON
+    with open(out_path, "w") as f:
+        json.dump(scores_dict, f)
     return scores_dict
 
 
@@ -1019,6 +1034,9 @@ if __name__ == "__main__":
     }
     analyses_params = {
         "results_dir": "data/outputs",
+        "run_antigens_summary": False,
+        "run_kmer_filtering": False,
+        "run_scores_distribution": True,
     }
     config = AnalysesConfig(**analyses_params)
     run_analyses(config, kmer_graph_params)

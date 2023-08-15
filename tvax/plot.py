@@ -183,7 +183,7 @@ def plot_scores(
     return fig, score_dict
 
 
-def plot_antigen_scores(
+def plot_scores_distribution(
     scores_dict: dict, out_path: str = "data/figures/scores_distribution.svg"
 ) -> None:
     df = pd.DataFrame(scores_dict)

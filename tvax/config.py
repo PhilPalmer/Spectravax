@@ -229,6 +229,10 @@ class AnalysesConfig(BaseModel):
     # K-mer filtering
     run_kmer_filtering: bool = True
     kmer_filtering_fig: Path = None
+    # Scores distribution
+    run_scores_distribution: bool = True
+    scores_distribution_json: Path = None
+    scores_distribution_fig: Path = None
 
     @validator("results_dir", pre=True, always=True)
     def validate_results_dir(cls, value, values):
@@ -254,4 +258,20 @@ class AnalysesConfig(BaseModel):
             results_dir = values.get("results_dir")
             kmer_filtering_fig = f"{results_dir}/figures/kmer_filtering.svg"
             return Path(kmer_filtering_fig)
+        return Path(value)
+
+    @validator("scores_distribution_json", pre=True, always=True)
+    def validate_scores_distribution_json(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            scores_distribution_json = f"{results_dir}/data/scores_distribution.json"
+            return Path(scores_distribution_json)
+        return Path(value)
+
+    @validator("scores_distribution_fig", pre=True, always=True)
+    def validate_scores_distribution_fig(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            scores_distribution_fig = f"{results_dir}/figures/scores_distribution.svg"
+            return Path(scores_distribution_fig)
         return Path(value)
