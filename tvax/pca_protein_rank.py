@@ -224,6 +224,7 @@ def plot_pca(
     :param figsize: figure size
     :return: figure
     """
+    sns.set_style("whitegrid")
     # Define clusters
     df.loc[df["Sequence_id"].str.contains("design"), "cluster"] = "vaccine design"
     df["cluster"] = df["cluster"].astype(int, errors="ignore")
