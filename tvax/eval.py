@@ -74,11 +74,13 @@ def compute_pathogen_coverages(
     config: EpitopeGraphConfig,
     comp_df: pd.DataFrame = None,
     add_clades: bool = False,
+    seqs_dict: dict = None,
 ) -> pd.DataFrame:
     """
     Computes the pathogen coverage of a vaccine designfor all of the target pathogen sequences
     """
-    seqs_dict = load_fasta(config.fasta_path)
+    if seqs_dict is None:
+        seqs_dict = load_fasta(config.fasta_path)
     # Compute the pathogen coverage for each pathogen
     path_cov = {
         seq_id: compute_pathogen_coverage(vaccine_design, seq, config.k)
