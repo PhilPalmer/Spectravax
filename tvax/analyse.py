@@ -400,6 +400,46 @@ def compute_n_filtered_kmers(
     return n_filtered_kmers_df
 
 
+def cons_vs_path_cov(
+    params: dict, antigens_dict: dict = antigens_dict()
+) -> pd.DataFrame:
+    """
+    Compare the conservation score and population coverage for all antigens
+    """
+    antigen_graphs = construct_antigen_graphs(params, antigens_dict)
+    config = EpitopeGraphConfig(**params)
+
+    # For each antigen, for each k-mer compute the conservation and pathogen coverage
+    antigens_cons_path_cov = {
+        "antigen": [],
+        "kmer": [],
+        "conservation": [],
+        "pathogen_coverage": [],
+    }
+
+    # Iterate over the antigen_graphs and antigens_dict at the same time
+    for (antigen, G), (_, data) in zip(antigen_graphs.items(), antigens_dict.items()):
+        print(antigen)
+        params["fasta_path"] = data["fasta_path"]
+        params["equalise_clades"] = False
+        config = EpitopeGraphConfig(**params)
+        seqs_dict = load_fasta(config.fasta_path)
+        for kmer, data in G.nodes(data=True):
+            path_cov_df = compute_pathogen_coverages(
+                [kmer],
+                config,
+                seqs_dict=seqs_dict,
+            )
+            path_cov = compute_av_pathogen_coverage([kmer], config, path_cov_df)
+            antigens_cons_path_cov["antigen"].append(antigen)
+            antigens_cons_path_cov["kmer"].append(kmer)
+            antigens_cons_path_cov["conservation"].append(data["frequency"])
+            antigens_cons_path_cov["pathogen_coverage"].append(path_cov)
+
+    antigens_cons_path_cov_df = pd.DataFrame.from_dict(antigens_cons_path_cov)
+    return antigens_cons_path_cov_df
+
+
 def compute_antigen_summary_metrics(
     antigens_dict: dict = antigens_dict(),
 ) -> pd.DataFrame:
