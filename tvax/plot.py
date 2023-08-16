@@ -888,7 +888,7 @@ def plot_antigens_comparison(
     # Plot the graphs
     fig1 = plot_path_cov_swarmplot(path_cov_df, fig=fig, ax=ax1)
     fig2 = plot_pop_cov_lineplot(pop_cov_df, mhc_type="mhc1", fig=fig, ax=ax2)
-    fig3 = plot_pop_cov_lineplot(pop_cov_df, mhc_type="mhc1", fig=fig, ax=ax3)
+    fig3 = plot_pop_cov_lineplot(pop_cov_df, mhc_type="mhc2", fig=fig, ax=ax3)
 
     # Annotate the subplots with letters
     for i, ax in enumerate([ax1, ax2, ax3]):
