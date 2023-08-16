@@ -223,6 +223,8 @@ class AnalysesConfig(BaseModel):
     """
 
     results_dir: Path = None
+    # Antigen graphs
+    antigen_graphs_pkl: Path = None
     # Antigens summary
     run_antigens_summary: bool = True
     antigen_summary_csv: Path = None
@@ -233,6 +235,10 @@ class AnalysesConfig(BaseModel):
     run_scores_distribution: bool = True
     scores_distribution_json: Path = None
     scores_distribution_fig: Path = None
+    # K-mer graphs
+    run_kmer_graphs: bool = True
+    kmer_graph_antigen: str = "Sarbecovirus S RBD"
+    kmer_graphs_fig: Path = None
 
     @validator("results_dir", pre=True, always=True)
     def validate_results_dir(cls, value, values):
@@ -243,6 +249,14 @@ class AnalysesConfig(BaseModel):
             if not Path(f"{value}/{subdir}").exists():
                 Path(f"{value}/{subdir}").mkdir(parents=True, exist_ok=True)
         return value
+
+    @validator("antigen_graphs_pkl", pre=True, always=True)
+    def validate_antigen_graphs_pkl(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            antigen_graphs_pkl = f"{results_dir}/data/antigen_graphs.pkl"
+            return Path(antigen_graphs_pkl)
+        return Path(value)
 
     @validator("antigen_summary_csv", pre=True, always=True)
     def validate_antigen_summary_csv(cls, value, values):
@@ -274,4 +288,12 @@ class AnalysesConfig(BaseModel):
             results_dir = values.get("results_dir")
             scores_distribution_fig = f"{results_dir}/figures/scores_distribution.svg"
             return Path(scores_distribution_fig)
+        return Path(value)
+
+    @validator("kmer_graphs_fig", pre=True, always=True)
+    def validate_kmer_graphs_fig(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            kmer_graphs_fig = f"{results_dir}/figures/kmer_graphs.svg"
+            return Path(kmer_graphs_fig)
         return Path(value)

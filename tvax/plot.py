@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import igviz as ig
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
@@ -24,6 +25,146 @@ from scipy.interpolate import griddata
 """
 Generate various plots to visualise the epitope graph and vaccine design(s).
 """
+
+
+def plot_kmer_graph(
+    G: nx.Graph,
+    paths: list = None,
+    fig: plt.Figure = None,
+    ax: plt.Axes = None,
+    score: str = "score",
+    score_min: float = 0,
+    score_max: float = 1,
+    colour_palette: str = "viridis",
+    jitter_amount: float = 0.02,
+    path_edge_colour: str = "red",
+    edge_colour: str = "#BFBFBF",
+    node_size: int = 15,
+    with_labels: bool = False,
+    xlim: list = None,
+    ylim: list = ([-0.03, 1.05]),
+):
+    """
+    Plot the k-mer graph
+    """
+    # Compute necessary variables
+    scores = nx.get_node_attributes(G, score)
+    score_values = scores.values()
+    cmap = sns.color_palette(colour_palette, as_cmap=True)
+    norm = mcolors.Normalize(vmin=score_min, vmax=score_max)
+    node_color = [cmap(norm(score)) for score in score_values]
+
+    # Position of the nodes with jitter
+    pos = nx.get_node_attributes(G, "pos")
+    pos = {node: (x, scores[node]) for node, (x, score) in pos.items()}
+    pos_jittered = {
+        node: (x, y + np.random.uniform(-jitter_amount, jitter_amount))
+        for node, (x, y) in pos.items()
+    }
+
+    # Edge colours
+    if paths is not None:
+        path_edges = []
+        paths[0] = ["BEGIN"] + paths[0] + ["END"]
+        for i in range(len(paths[0]) - 1):
+            path_edges.append((paths[0][i], paths[0][i + 1]))
+
+        # Get the edge colours
+        edge_colours_non_path = [
+            (u, v) for u, v, d in G.edges(data=True) if (u, v) not in path_edges
+        ]
+        edge_colours_path = [
+            (u, v) for u, v, d in G.edges(data=True) if (u, v) in path_edges
+        ]
+
+    # Compute the max_pos value
+    max_pos = max([p[0] for p in pos.values()]) + 0.5
+
+    # Plot the graph
+    if fig is None and ax is None:
+        fig, ax = plt.subplots(1, figsize=(16, 8))
+
+    # Draw the non-path edges
+    nx.draw_networkx_edges(
+        G,
+        pos=pos_jittered,
+        edgelist=edge_colours_non_path,
+        edge_color=edge_colour,
+        node_size=0,  # Hide the nodes for now
+        width=0.5,
+        ax=ax,
+    )
+
+    # Draw the nodes
+    nx.draw_networkx_nodes(
+        G, node_color=node_color, pos=pos_jittered, node_size=node_size, ax=ax
+    )
+
+    # Draw the path edges
+    nx.draw_networkx_edges(
+        G,
+        pos=pos_jittered,
+        edgelist=edge_colours_path,
+        edge_color=path_edge_colour,
+        node_size=0,  # Hide the nodes for now
+        width=2,
+        ax=ax,
+    )
+
+    # Label the path nodes
+    if with_labels:
+        path_nodes = sum(paths, [])
+        for i, node in enumerate(path_nodes):
+            # offset = 0.03 if i % 2 == 0 else -0.03
+            plt.text(pos[node][0], pos[node][1], node, fontsize=10, ha="center")
+
+    # Set plot properties
+    if xlim == None:
+        ax.set_xlim([-0.1, max_pos])
+    else:
+        ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+
+    ax.spines.right.set_visible(False)
+    ax.spines.top.set_visible(False)
+    ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ax.tick_params(axis="both", which="major", labelsize=14)
+    ax.set_xlabel("Approximate K-mer Position", fontsize=18)
+    ax.set_ylabel("K-mer Score", fontsize=18)
+
+    # Only show whole numbers on the x-axis
+    ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+
+    # Add a colorbar to illustrate the score
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    fig.colorbar(sm, ax=ax, orientation="vertical")
+    return fig
+
+
+def plot_kmer_graphs(
+    G: nx.Graph,
+    paths: list,
+    out_path: str,
+    fig_size: tuple = (16, 16),
+    xlim1: tuple = None,
+    ylim1: tuple = ([-0.03, 1.05]),
+    xlim2: tuple = ([180, 200]),
+    ylim2: tuple = ([-0.03, 0.3]),
+) -> None:
+    """
+    Plot two k-mer graphs with different x and y limits
+    """
+    # Create the figure
+    sns.set_style("whitegrid")
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=fig_size)
+
+    # Plot the graphs
+    fig1 = plot_kmer_graph(G, paths, fig=fig, ax=ax1, xlim=xlim1, ylim=ylim1)
+    fig2 = plot_kmer_graph(G, paths, fig=fig, ax=ax2, xlim=xlim2, ylim=ylim2)
+
+    # Save fig
+    plt.savefig(out_path, bbox_inches="tight")
 
 
 def plot_epitope_graph(

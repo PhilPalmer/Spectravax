@@ -5,6 +5,7 @@ import numpy as np
 import os
 import pandas as pd
 from pathlib import Path
+import pickle
 import subprocess
 
 from Bio import SeqIO
@@ -21,6 +22,7 @@ from tvax.eval import (
 from tvax.graph import build_epitope_graph, f
 from tvax.plot import (
     plot_kmer_filtering,
+    plot_kmer_graphs,
     plot_population_coverage,
     plot_pop_cov_lineplot,
     plot_scores_distribution,
@@ -52,24 +54,89 @@ Run different analyses including a parameter sweep of potential vaccine designs.
 ###########################################
 
 
-def run_analyses(config: AnalysesConfig, params: dict) -> None:
+# TODO: Move these into config
+def antigens_dict():
+    """
+    Return a dictionary of antigen names and paths to fasta files.
+    """
+    return {
+        "Betacoronavirus N": {
+            "fasta_path": "data/input/sar_mer_nuc_protein.fasta",
+            "results_dir": "data/results",
+        },
+        "Coronavirinae nsp12": {
+            "fasta_path": "data/input/nsp12_protein.fa",
+            "results_dir": "data/results_nsp12",
+        },
+        "Sarbecovirus S RBD": {
+            "fasta_path": "data/input/sarbeco_protein_RBD.fa",
+            "results_dir": "data/results_sarbeco_rbd",
+        },
+        "Merbecovirus S RBD": {
+            "fasta_path": "data/input/merbeco_protein_RBD.fa",
+            "results_dir": "data/results_merbeco_rbd",
+        },
+        # "Embecovirus_S": {
+        #     "fasta_path": "data/input/embeco_protein_spike.fa",
+        #     "results_dir": "data/results_embeco_spike",
+        # },
+        # "Embecovirus_N": {
+        #     "fasta_path": "data/input/embeco_protein_np.fa",
+        #     "results_dir": "data/results_embeco_np",
+        # },
+        "Orthomyxoviridae H3": {
+            "fasta_path": "data/input/H3_human.fa",
+            "results_dir": "data/results_h3",
+        },
+        "Orthomyxoviridae N1": {
+            "fasta_path": "data/input/N1_protein.fst",
+            "results_dir": "data/results_n1",
+        },
+    }
+
+
+def run_analyses(
+    config: AnalysesConfig,
+    params: dict,
+    antigens_dict: dict = antigens_dict(),
+) -> None:
     """
     Run the analyses specified in the config.
     """
+    # Load the k-mer graphs for each antigen to be used in some of the analyses
+    if config.run_kmer_graphs or config.run_scores_distribution:
+        if config.antigen_graphs_pkl.exists():
+            print("Loading antigen graphs from pickle file")
+            with open(config.antigen_graphs_pkl, "rb") as file:
+                antigen_graphs = pickle.load(file)
+        else:
+            antigen_graphs = construct_antigen_graphs(
+                params, config.antigen_graphs_pkl, antigens_dict
+            )
     if config.run_antigens_summary:
         compute_antigen_summary_metrics(config.antigen_summary_csv)
     if config.run_kmer_filtering:
         n_filtered_kmers_df = compute_n_filtered_kmers(params)
         plot_kmer_filtering(n_filtered_kmers_df, config.kmer_filtering_fig)
     if config.run_scores_distribution:
+        # TODO: update this func to use the antigen_graphs dict
         if config.scores_distribution_json.exists():
             with open(config.scores_distribution_json, "r") as file:
                 scores_dict = json.load(file)
+        # TODO: Fix this step - I was getting "KeyError: 'MSDNGPQSN'" during the graph construction
         else:
             scores_dict = compute_antigen_scores(
                 params, config.scores_distribution_json
             )
         plot_scores_distribution(scores_dict, config.scores_distribution_fig)
+    if config.run_kmer_graphs:
+        antigen_dict = antigens_dict[config.kmer_graph_antigen]
+        params["fasta_path"] = antigen_dict["fasta_path"]
+        params["results_dir"] = antigen_dict["results_dir"]
+        kmergraph_config = EpitopeGraphConfig(**params)
+        G = antigen_graphs[config.kmer_graph_antigen]
+        Q = design_vaccines(G, kmergraph_config)
+        plot_kmer_graphs(G, Q, config.kmer_graphs_fig)
 
 
 #################
@@ -202,46 +269,6 @@ def run_parameter_sweep_parallel(
 ###################################
 
 
-def antigens_dict():
-    """
-    Return a dictionary of antigen names and paths to fasta files.
-    """
-    return {
-        "Betacoronavirus_N": {
-            "fasta_path": "data/input/sar_mer_nuc_protein.fasta",
-            "results_dir": "data/results",
-        },
-        "Coronavirinae_nsp12": {
-            "fasta_path": "data/input/nsp12_protein.fa",
-            "results_dir": "data/results_nsp12",
-        },
-        "Sarbecovirus_RBD": {
-            "fasta_path": "data/input/sarbeco_protein_RBD.fa",
-            "results_dir": "data/results_sarbeco_rbd",
-        },
-        "Merbecovirus_RBD": {
-            "fasta_path": "data/input/merbeco_protein_RBD.fa",
-            "results_dir": "data/results_merbeco_rbd",
-        },
-        # "Embecovirus_S": {
-        #     "fasta_path": "data/input/embeco_protein_spike.fa",
-        #     "results_dir": "data/results_embeco_spike",
-        # },
-        # "Embecovirus_N": {
-        #     "fasta_path": "data/input/embeco_protein_np.fa",
-        #     "results_dir": "data/results_embeco_np",
-        # },
-        "Orthomyxoviridae_H3": {
-            "fasta_path": "data/input/H3_human.fa",
-            "results_dir": "data/results_h3",
-        },
-        "Orthomyxoviridae_N1": {
-            "fasta_path": "data/input/N1_protein.fst",
-            "results_dir": "data/results_n1",
-        },
-    }
-
-
 def compute_coverages(
     kmers: list,
     config: EpitopeGraphConfig,
@@ -309,6 +336,7 @@ def compare_antigens(
 
 def construct_antigen_graphs(
     params: dict,
+    out_path: str,
     antigens_dict: dict = antigens_dict(),
 ) -> dict:
     # Create an empty dictionary to store the graphs
@@ -321,12 +349,16 @@ def construct_antigen_graphs(
         config = EpitopeGraphConfig(**params)
         epitope_graph = build_epitope_graph(config)
         antigen_graphs[antigen] = epitope_graph
+    # Write to pickle file
+    with open(out_path, "wb") as f:
+        pickle.dump(antigen_graphs, f)
     return antigen_graphs
 
 
 def compute_antigen_scores(
     params: dict,
     out_path: Path,
+    antigens_dict: dict = antigens_dict(),
 ) -> dict:
     """
     Compute the scores for each antigen
@@ -335,7 +367,7 @@ def compute_antigen_scores(
     scores_dict = {}
 
     # Compute antigen graphs
-    antigen_graphs = construct_antigen_graphs(params, antigens_dict())
+    antigen_graphs = construct_antigen_graphs(params, antigens_dict)
     config = EpitopeGraphConfig(**params)
 
     # Get the scores for each antigen
@@ -1036,7 +1068,8 @@ if __name__ == "__main__":
         "results_dir": "data/outputs",
         "run_antigens_summary": False,
         "run_kmer_filtering": False,
-        "run_scores_distribution": True,
+        "run_scores_distribution": False,
+        "run_kmer_graph": True,
     }
     config = AnalysesConfig(**analyses_params)
     run_analyses(config, kmer_graph_params)
