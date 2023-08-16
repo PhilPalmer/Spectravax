@@ -225,9 +225,6 @@ class AnalysesConfig(BaseModel):
     results_dir: Path = None
     # Antigen graphs
     antigen_graphs_pkl: Path = None
-    # Antigens summary
-    run_antigens_summary: bool = True
-    antigen_summary_csv: Path = None
     # K-mer filtering
     run_kmer_filtering: bool = True
     kmer_filtering_fig: Path = None
@@ -239,6 +236,10 @@ class AnalysesConfig(BaseModel):
     run_kmer_graphs: bool = True
     kmer_graph_antigen: str = "Sarbecovirus S RBD"
     kmer_graphs_fig: Path = None
+    # Compare antigens
+    run_compare_antigens: bool = True
+    compare_antigens_csv: Path = None
+    compare_antigens_fig: Path = None
 
     @validator("results_dir", pre=True, always=True)
     def validate_results_dir(cls, value, values):
@@ -256,14 +257,6 @@ class AnalysesConfig(BaseModel):
             results_dir = values.get("results_dir")
             antigen_graphs_pkl = f"{results_dir}/data/antigen_graphs.pkl"
             return Path(antigen_graphs_pkl)
-        return Path(value)
-
-    @validator("antigen_summary_csv", pre=True, always=True)
-    def validate_antigen_summary_csv(cls, value, values):
-        if value is None:
-            results_dir = values.get("results_dir")
-            antigen_summary_csv = f"{results_dir}/data/antigen_summary.csv"
-            return Path(antigen_summary_csv)
         return Path(value)
 
     @validator("kmer_filtering_fig", pre=True, always=True)
@@ -296,4 +289,20 @@ class AnalysesConfig(BaseModel):
             results_dir = values.get("results_dir")
             kmer_graphs_fig = f"{results_dir}/figures/kmer_graphs.svg"
             return Path(kmer_graphs_fig)
+        return Path(value)
+
+    @validator("compare_antigens_csv", pre=True, always=True)
+    def validate_compare_antigens_csv(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            compare_antigens_csv = f"{results_dir}/data/compare_antigens.csv"
+            return Path(compare_antigens_csv)
+        return Path(value)
+
+    @validator("compare_antigens_fig", pre=True, always=True)
+    def validate_compare_antigens_fig(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            compare_antigens_fig = f"{results_dir}/figures/compare_antigens.svg"
+            return Path(compare_antigens_fig)
         return Path(value)

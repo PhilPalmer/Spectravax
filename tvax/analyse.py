@@ -21,6 +21,7 @@ from tvax.eval import (
 )
 from tvax.graph import build_epitope_graph, f
 from tvax.plot import (
+    plot_antigens_comparison,
     plot_kmer_filtering,
     plot_kmer_graphs,
     plot_population_coverage,
@@ -113,8 +114,6 @@ def run_analyses(
             antigen_graphs = construct_antigen_graphs(
                 params, config.antigen_graphs_pkl, antigens_dict
             )
-    if config.run_antigens_summary:
-        compute_antigen_summary_metrics(config.antigen_summary_csv)
     if config.run_kmer_filtering:
         n_filtered_kmers_df = compute_n_filtered_kmers(params)
         plot_kmer_filtering(n_filtered_kmers_df, config.kmer_filtering_fig)
@@ -137,6 +136,23 @@ def run_analyses(
         G = antigen_graphs[config.kmer_graph_antigen]
         Q = design_vaccines(G, kmergraph_config)
         plot_kmer_graphs(G, Q, config.kmer_graphs_fig)
+    if config.run_compare_antigens:
+        print("Comparing antigens...")
+        params["equalise_clades"] = True
+        path_cov_df, pop_cov_df = compare_antigens(
+            params,
+            antigens_dict,
+            antigen_graphs,
+        )
+        compute_antigen_summary_metrics(
+            path_cov_df, pop_cov_df, config.compare_antigens_csv
+        )
+        print("Plotting antigen comparison...")
+        plot_antigens_comparison(
+            path_cov_df,
+            pop_cov_df,
+            config.compare_antigens_fig,
+        )
 
 
 #################
@@ -295,7 +311,8 @@ def compute_coverages(
 
 def compare_antigens(
     params: dict,
-    antigens_dict: dict = antigens_dict(),
+    antigens_dict: dict,
+    antigen_graphs: dict,
     n_targets: list = list(range(0, 11)),
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
@@ -307,11 +324,10 @@ def compare_antigens(
 
     # Design vaccines for each antigen
     for antigen, antigen_dict in antigens_dict.items():
-        antigen = antigen.replace("_", " ").replace("RBD", "S RBD")
         params["fasta_path"] = antigen_dict["fasta_path"]
         params["results_dir"] = antigen_dict["results_dir"]
         config = EpitopeGraphConfig(**params)
-        epitope_graph = build_epitope_graph(config)
+        epitope_graph = antigen_graphs[antigen]
         vaccine_designs = design_vaccines(epitope_graph, config)
         vaccine_kmers = seq_to_kmers(
             path_to_seq(vaccine_designs[0]), config.k, epitope_graph
@@ -508,6 +524,8 @@ def cons_vs_path_cov(
 
 
 def compute_antigen_summary_metrics(
+    path_cov_df: pd.DataFrame = None,
+    pop_cov_df: pd.DataFrame = None,
     out_path=None,
     antigens_dict: dict = antigens_dict(),
 ) -> pd.DataFrame:
@@ -533,6 +551,28 @@ def compute_antigen_summary_metrics(
             "median_seq_len": median_seq_len,
         }
     )
+    if path_cov_df is not None and pop_cov_df is not None:
+        summary_df["mean_pathogen_coverage"] = [
+            path_cov_df[path_cov_df["antigen"] == antigen]["pathogen_coverage"].mean()
+            for antigen in summary_df["antigen"]
+        ]
+        summary_df["pop_cov_mhc1_n1"] = [
+            pop_cov_df[
+                (pop_cov_df["antigen"] == antigen)
+                & (pop_cov_df["mhc_type"] == "mhc1")
+                & (pop_cov_df["n_target"] == "n ≥ 1")
+            ]["pop_cov"].values[0]
+            for antigen in summary_df["antigen"]
+        ]
+        summary_df["pop_cov_mhc2_n1"] = [
+            pop_cov_df[
+                (pop_cov_df["antigen"] == antigen)
+                & (pop_cov_df["mhc_type"] == "mhc2")
+                & (pop_cov_df["n_target"] == "n ≥ 1")
+            ]["pop_cov"].values[0]
+            for antigen in summary_df["antigen"]
+        ]
+
     # Write to file
     summary_df.to_csv(out_path, index=False)
     return summary_df
@@ -1061,15 +1101,13 @@ if __name__ == "__main__":
             "population_coverage_mhc2": 10,
         },
         "affinity_predictors": ["mhcflurry", "netmhcpan"],
-        "immune_scores_mhc1_path": "data/results_sarbeco_rbd/MHC_Binding/sarbeco_protein_RBD_immune_scores_ensemble.pkl",
-        "immune_scores_mhc2_path": "data/results_sarbeco_rbd/MHC_Binding/sarbeco_protein_RBD_immune_scores_netmhcii.pkl",
     }
     analyses_params = {
         "results_dir": "data/outputs",
-        "run_antigens_summary": False,
         "run_kmer_filtering": False,
         "run_scores_distribution": False,
-        "run_kmer_graph": True,
+        "run_kmer_graph": False,
+        "run_compare_antigens": True,
     }
     config = AnalysesConfig(**analyses_params)
     run_analyses(config, kmer_graph_params)

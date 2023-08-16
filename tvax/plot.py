@@ -7,6 +7,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import string
 
 from Bio import SeqIO
 from Bio.Seq import Seq
@@ -867,9 +868,50 @@ def plot_parameter_sweep_surface(
 #########################
 
 
-def plot_pop_cov_lineplot(
-    pop_cov_df: pd.DataFrame, mhc_type: str = "mhc1", hue: str = "antigen"
+def plot_antigens_comparison(
+    path_cov_df: pd.DataFrame,
+    pop_cov_df: pd.DataFrame,
+    out_path: str,
+    fig_size: tuple = (16, 24),
 ) -> None:
+    """
+    Compare the pathogen and population coverage for different antigens.
+    """
+    # Create the figure
+    sns.set_style("whitegrid")
+    gridspec = dict(hspace=0.3, height_ratios=[1, 0, 1, 1])
+    fig, (ax1, ax4, ax2, ax3) = plt.subplots(
+        nrows=4, ncols=1, figsize=fig_size, gridspec_kw=gridspec
+    )
+    ax4.set_visible(False)
+
+    # Plot the graphs
+    fig1 = plot_path_cov_swarmplot(path_cov_df, fig=fig, ax=ax1)
+    fig2 = plot_pop_cov_lineplot(pop_cov_df, mhc_type="mhc1", fig=fig, ax=ax2)
+    fig3 = plot_pop_cov_lineplot(pop_cov_df, mhc_type="mhc1", fig=fig, ax=ax3)
+
+    # Annotate the subplots with letters
+    for i, ax in enumerate([ax1, ax2, ax3]):
+        ax.text(
+            -0.05,
+            1.1,
+            string.ascii_uppercase[i],
+            transform=ax.transAxes,
+            size=24,
+            weight="bold",
+        )
+
+    # Save fig
+    plt.savefig(out_path, bbox_inches="tight")
+
+
+def plot_pop_cov_lineplot(
+    pop_cov_df: pd.DataFrame,
+    mhc_type: str = "mhc1",
+    hue: str = "antigen",
+    fig: plt.Figure = None,
+    ax: plt.Axes = None,
+) -> plt.Figure:
     """
     Plot lineplot of the population coverage results for different vaccine designs.
     """
@@ -887,7 +929,8 @@ def plot_pop_cov_lineplot(
     sns.set_style("whitegrid")
 
     # Set the figure size
-    fig, ax = plt.subplots(figsize=(14, 6))
+    if fig == None and ax == None:
+        fig, ax = plt.subplots(figsize=(14, 6))
 
     # Plot the lineplot
     sns.lineplot(
@@ -901,16 +944,21 @@ def plot_pop_cov_lineplot(
         ax=ax,
     )
     # Set the axis labels
-    ax.set_xlabel("Minimum number of peptide-HLA hits cutoff")
-    ax.set_ylabel(f"{y} (%)")
+    ax.set_xlabel("Minimum number of peptide-HLA hits cutoff", fontsize=18)
+    ax.set_ylabel(f"{y} (%)", fontsize=18)
+    ax.tick_params(axis="both", which="major", labelsize=14)
+
     # Set axis limits
     ax.set_ylim(0, 100)
     ax.set_xlim(0, 10)
     # Display the legend outside of the plot (right middle)
     ax.legend(bbox_to_anchor=(1.0, 0.8), loc=2, borderaxespad=0.0)
+    return fig
 
 
-def plot_path_cov_swarmplot(path_cov_df: pd.DataFrame) -> None:
+def plot_path_cov_swarmplot(
+    path_cov_df: pd.DataFrame, fig: plt.Figure = None, ax: plt.Axes = None
+) -> plt.Figure:
     """
     Plot swarmplot of the pathogen coverage results for different vaccine designs.
     """
@@ -919,7 +967,8 @@ def plot_path_cov_swarmplot(path_cov_df: pd.DataFrame) -> None:
     sns.set_style("whitegrid")
 
     # Set the figure size
-    fig, ax = plt.subplots(figsize=(14, 6))
+    if fig == None and ax == None:
+        fig, ax = plt.subplots(figsize=(14, 6))
 
     # Plot the swarmplot with data points
     sns.violinplot(
@@ -943,15 +992,17 @@ def plot_path_cov_swarmplot(path_cov_df: pd.DataFrame) -> None:
         legend=False,
     )
 
-    # Set the x-axis label
-    ax.set_xlabel("Target Antigen")
-    ax.set_ylabel("Pathogen Coverage (%)")
+    # Set the axis labels
+    ax.set_xlabel("Target Antigen", fontsize=18)
+    ax.set_ylabel("Pathogen Coverage (%)", fontsize=18)
+    ax.tick_params(axis="both", which="major", labelsize=14)
     # Set axis limits
     ax.set_ylim(0, 100)
     # Rotate the x-axis labels
     ax.set_xticklabels(ax.get_xticklabels(), rotation=45, horizontalalignment="right")
     # Display the legend outside of the plot (right middle)
     ax.legend(bbox_to_anchor=(1.0, 0.8), loc=2, borderaxespad=0.0)
+    return fig
 
 
 ###########################################################################
