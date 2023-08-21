@@ -105,7 +105,11 @@ def run_analyses(
     Run the analyses specified in the config.
     """
     # Load the k-mer graphs for each antigen to be used in some of the analyses
-    if config.run_kmer_graphs or config.run_scores_distribution:
+    if (
+        config.run_kmer_graphs
+        or config.run_scores_distribution
+        or config.run_compare_antigens
+    ):
         if config.antigen_graphs_pkl.exists():
             print("Loading antigen graphs from pickle file")
             with open(config.antigen_graphs_pkl, "rb") as file:
@@ -129,6 +133,7 @@ def run_analyses(
             )
         plot_scores_distribution(scores_dict, config.scores_distribution_fig)
     if config.run_kmer_graphs:
+        print("Running k-mer graphs...")
         antigen_dict = antigens_dict[config.kmer_graph_antigen]
         params["fasta_path"] = antigen_dict["fasta_path"]
         params["results_dir"] = antigen_dict["results_dir"]
@@ -359,7 +364,6 @@ def construct_antigen_graphs(
     antigen_graphs = {}
     # Construct k-mer graph for each antigen
     for antigen, antigen_dict in antigens_dict.items():
-        antigen = antigen.replace("_", " ").replace("RBD", "S RBD")
         params["fasta_path"] = antigen_dict["fasta_path"]
         params["results_dir"] = antigen_dict["results_dir"]
         config = EpitopeGraphConfig(**params)
@@ -476,9 +480,6 @@ def compute_n_filtered_kmers(
 
     # Create a dataframe
     n_filtered_kmers_df = pd.DataFrame(n_filtered_kmers)
-    n_filtered_kmers_df["antigen"] = (
-        n_filtered_kmers_df["antigen"].str.replace("_", " ").replace("RBD", "S RBD")
-    )
 
     return n_filtered_kmers_df
 
@@ -1093,12 +1094,12 @@ if __name__ == "__main__":
         "robust": False,
         "aligned": False,
         "decycle": True,
-        "equalise_clades": False,
+        "equalise_clades": True,
         "n_clusters": 1,
         "weights": {
             "frequency": 1,
-            "population_coverage_mhc1": 20,
-            "population_coverage_mhc2": 10,
+            "population_coverage_mhc1": 1,
+            "population_coverage_mhc2": 1,
         },
         "affinity_predictors": ["mhcflurry", "netmhcpan"],
     }
@@ -1106,7 +1107,7 @@ if __name__ == "__main__":
         "results_dir": "data/outputs",
         "run_kmer_filtering": False,
         "run_scores_distribution": False,
-        "run_kmer_graph": False,
+        "run_kmer_graphs": True,
         "run_compare_antigens": True,
     }
     config = AnalysesConfig(**analyses_params)
