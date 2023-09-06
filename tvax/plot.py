@@ -124,7 +124,7 @@ def plot_kmer_graph(
         ax.set_xlim([-0.1, max_pos])
     else:
         ax.set_xlim(xlim)
-    ax.set_ylim(ylim)
+    # ax.set_ylim(ylim)
 
     ax.spines.right.set_visible(False)
     ax.spines.top.set_visible(False)
@@ -719,12 +719,14 @@ def plot_population_coverage(
     n_targets: list = list(range(0, 11)),
     mhc_types: list = ["mhc1", "mhc2"],
     config: EpitopeGraphConfig = None,
+    G: nx.Graph = None,
 ):
     """
     Plot the population coverage of the vaccine designs.
     """
     peptides = vaccine_design
     pop_cov_dict = {"ancestry": [], "mhc_type": [], "n_target": [], "pop_cov": []}
+    kmers_dict = None if G is None else dict(G.nodes(data=True))
 
     # Preprocessing
     for mhc_type in mhc_types:
@@ -745,7 +747,7 @@ def plot_population_coverage(
             overlap_haplotypes = load_overlap(peptides, anc_freq, config, mhc_type)
             for n_target in n_targets:
                 pop_cov = optivax_robust(
-                    overlap_haplotypes, anc_freq, n_target, peptides
+                    overlap_haplotypes, anc_freq, n_target, peptides, kmers_dict
                 )
                 pop_cov_dict["ancestry"].append(anc)
                 pop_cov_dict["mhc_type"].append(mhc_type)
@@ -935,7 +937,10 @@ def plot_antigens_comparison(
 def plot_pop_cov_lineplot(
     pop_cov_df: pd.DataFrame,
     mhc_type: str = "mhc1",
+    x: str = "n_target",
+    y: str = "pop_cov",
     hue: str = "antigen",
+    style: str = None,
     fig: plt.Figure = None,
     ax: plt.Axes = None,
 ) -> plt.Figure:
@@ -943,13 +948,15 @@ def plot_pop_cov_lineplot(
     Plot lineplot of the population coverage results for different vaccine designs.
     """
     mhc_class = "I" if mhc_type == "mhc1" else "II"
-    y = f"Population Coverage for MHC Class {mhc_class}"
+    new_y = f"Coverage for MHC-{mhc_class}"
     pop_cov_df["mhc_type"] = (
         pop_cov_df["mhc_type"]
-        .replace("mhc1", "Population Coverage for MHC Class I")
-        .replace("mhc2", "Population Coverage for MHC Class II")
+        .replace("mhc1", "Coverage for MHC-I")
+        .replace("mhc2", "Coverage for MHC-II")
     )
-    df = pop_cov_df[pop_cov_df["mhc_type"] == y]
+    df = pop_cov_df[pop_cov_df["mhc_type"] == new_y]
+    df = df.rename(columns={y: new_y})
+    y = new_y
 
     # Set the font size and style
     sns.set(font_scale=1.2)
@@ -962,9 +969,10 @@ def plot_pop_cov_lineplot(
     # Plot the lineplot
     sns.lineplot(
         data=df,
-        x="n_target",
-        y="pop_cov",
+        x=x,
+        y=new_y,
         hue=hue,
+        style=style,
         markers=True,
         dashes=False,
         palette="colorblind",

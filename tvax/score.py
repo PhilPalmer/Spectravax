@@ -2,8 +2,10 @@ import mhcflurry
 import numpy as np
 import os
 import pandas as pd
+import pickle
 import subprocess
 
+from pathlib import Path
 from sklearn.preprocessing import MinMaxScaler
 from tvax.config import EpitopeGraphConfig
 from tvax.netmhcpan_workflow import run_netmhcpan, scheduler
@@ -38,20 +40,38 @@ def add_score(kmers_dict: dict, config: EpitopeGraphConfig) -> dict:
     """
     Add the total weighted score to each k-mer.
     """
-    # Calculate the total score for each k-mer by summing the weighted scores
-    # TODO: Check if dividing by the sum of the weights is necessary
-    for kmer in kmers_dict:
-        kmers_dict[kmer]["score"] = sum(
-            [kmers_dict[kmer][name] * val for name, val in config.weights if val > 0]
+    if config.scoring_method == "multiplicative":
+        for kmer in kmers_dict:
+            f_cons = kmers_dict[kmer]["frequency"]
+            f_mhc1 = kmers_dict[kmer]["population_coverage_mhc1"]
+            f_mhc2 = kmers_dict[kmer]["population_coverage_mhc2"]
+            w_clade = kmers_dict[kmer]["clade_weight"]
+            w_cons = config.weights.frequency
+            w_mhc1 = config.weights.population_coverage_mhc1
+            w_mhc2 = config.weights.population_coverage_mhc2
+            alpha = config.alpha
+            kmers_dict[kmer]["score"] = (
+                f_cons * w_cons * (f_mhc1 * w_mhc1 + f_mhc2 * w_mhc2)
+            ) * w_clade
+    if config.scoring_method == "weighted_average":
+        for kmer in kmers_dict:
+            kmers_dict[kmer]["score"] = sum(
+                [
+                    kmers_dict[kmer][name] * val
+                    for name, val in config.weights
+                    if val > 0
+                ]
+            ) / sum(config.weights.dict().values())
+            # Multiple the total score by the clade weight
+            kmers_dict[kmer]["score"] *= kmers_dict[kmer]["clade_weight"]
+        # Min-max scale the scores
+        scores = [kmers_dict[kmer]["score"] for kmer in kmers_dict]
+        minmax_scaler = MinMaxScaler()
+        scores = minmax_scaler.fit_transform(np.array(scores).reshape(-1, 1)).reshape(
+            -1
         )
-        # Multiple the total score by the clade weight
-        kmers_dict[kmer]["score"] *= kmers_dict[kmer]["clade_weight"]
-    # Min-max scale the scores
-    scores = [kmers_dict[kmer]["score"] for kmer in kmers_dict]
-    minmax_scaler = MinMaxScaler()
-    scores = minmax_scaler.fit_transform(np.array(scores).reshape(-1, 1)).reshape(-1)
-    for i, kmer in enumerate(kmers_dict):
-        kmers_dict[kmer]["score"] = scores[i]
+        for i, kmer in enumerate(kmers_dict):
+            kmers_dict[kmer]["score"] = scores[i]
     return kmers_dict
 
 
@@ -95,7 +115,11 @@ def add_population_coverage(
     # Calculate and save the population coverage for each peptide
     for e in kmers_dict:
         kmers_dict[e][f"population_coverage_{mhc_type}"] = optivax_robust(
-            overlap_haplotypes, average_frequency, config.n_target, [e]
+            overlap_haplotypes,
+            average_frequency,
+            config.n_target,
+            [e],
+            use_probabilities=False,
         )
 
     return kmers_dict
@@ -147,6 +171,7 @@ def load_overlap(peptides, hap_freq, config: EpitopeGraphConfig, mhc_type: str):
                     config.raw_affinity_netmhc_path,
                     config,
                     "mhc1",
+                    config.binding_criteria,
                 )
             if (
                 "mhcflurry" in config.affinity_predictors
@@ -159,13 +184,19 @@ def load_overlap(peptides, hap_freq, config: EpitopeGraphConfig, mhc_type: str):
                 pmhc_aff_pivot = netmhc_pivot
         else:
             pmhc_aff_pivot = predict_affinity_netmhcpan(
-                peptides, hla_alleles, config.raw_affinity_netmhcii_path, config, "mhc2"
+                peptides,
+                hla_alleles,
+                config.raw_affinity_netmhcii_path,
+                config,
+                "mhc2",
+                config.binding_criteria,
             )
 
         # Binarize the data to create hits
-        pmhc_aff_pivot = pmhc_aff_pivot.applymap(
-            lambda x: 1 if x > affinity_cutoff else 0
-        )
+        if config.binding_criteria == "transformed_affinity":
+            pmhc_aff_pivot = pmhc_aff_pivot.applymap(
+                lambda x: 1 if x > affinity_cutoff else 0
+            )
         # Drop the loci from the columns and get the data down to a Single Index of alleles for the columns
         pmhc_aff_pivot = pmhc_aff_pivot.droplevel("loci", axis=1)
         # Run the add_hits_across_haplotypes function on the desired data.
@@ -185,6 +216,7 @@ def predict_affinity_mhcflurry(
     """
     Predict the binding affinity of each peptide-HLA pair using MHCflurry
     """
+    # TODO: Add support for eluted ligand (presentation score) binding criteria for MHCflurry
     if os.path.exists(raw_affinity_path):
         # TODO: Check if the peptides and alleles are the same as the ones in the file
         pmhc_aff_pivot = pd.read_pickle(raw_affinity_path)
@@ -226,6 +258,7 @@ def predict_affinity_netmhcpan(
     raw_affinity_path: str,
     config: EpitopeGraphConfig,
     mhc_type: str = "mhc1",
+    binding_criteria: str = "EL-score",
 ) -> pd.DataFrame:
     """
     Predict the binding affinity of each peptide-HLA pair using NetMHCpan4.1
@@ -258,7 +291,7 @@ def predict_affinity_netmhcpan(
             dfs.append(df)
 
         pmhc_aff = pd.concat(dfs)
-        pmhc_aff = pmhc_aff.rename(columns={"Peptide": "peptide"})
+        pmhc_aff = pmhc_aff.rename(columns={"Peptide": "peptide", "Score": "EL-score"})
         if "nM" not in pmhc_aff.columns:
             pmhc_aff["nM"] = 50000 ** (1 - pmhc_aff["BA-score"])
         pmhc_aff["transformed_affinity"] = pmhc_aff["nM"].apply(transform_affinity)
@@ -270,7 +303,7 @@ def predict_affinity_netmhcpan(
         pmhc_aff_pivot = pmhc_aff.pivot_table(
             index="peptide",
             columns=["loci", "allele"],
-            values="transformed_affinity",
+            values=binding_criteria,
         )
         pmhc_aff_pivot.to_pickle(raw_affinity_path, protocol=2)
 
@@ -381,12 +414,14 @@ def add_hits_across_haplotypes(
             temp_sum = 0
             for hap_type in col:
                 if hap_type in unique_columns:
-                    temp_sum += int(df_binarized.at[pept, hap_type])
+                    temp_sum += float(df_binarized.at[pept, hap_type])
             df_overlap.at[pept, col] = temp_sum
     return df_overlap
 
 
-def optivax_robust(over, hap, thresh, set_of_peptides):
+def optivax_robust(
+    over, hap, thresh, set_of_peptides, kmers_dict=None, use_probabilities=False
+):
     """
     Evaluates the objective value for optivax robust
     EvalVax-Robust over haplotypes!!!
@@ -407,7 +442,8 @@ def optivax_robust(over, hap, thresh, set_of_peptides):
     total_overlays = np.zeros(num_of_haplotypes, dtype=int)
 
     for pept in set_of_peptides:
-        total_overlays = total_overlays + np.array(over.loc[pept, :])
+        cons = 1 if kmers_dict is None else kmers_dict[pept]["frequency"]
+        total_overlays = total_overlays + np.array(over.loc[pept, :]) * cons
 
     filtered_overlays = _my_filter(total_overlays, thresh)
 

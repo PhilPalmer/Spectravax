@@ -51,8 +51,8 @@ class Weights(BaseModel):
     """
 
     frequency: float = 1
-    population_coverage_mhc1: float = 20
-    population_coverage_mhc2: float = 10
+    population_coverage_mhc1: float = 1
+    population_coverage_mhc2: float = 1
 
 
 class EpitopeGraphConfig(BaseModel):
@@ -67,6 +67,8 @@ class EpitopeGraphConfig(BaseModel):
     m: int = 1
     n_target: int = 1
     robust: bool = True
+    scoring_method: Literal["weighted_average", "multiplicative"] = "multiplicative"
+    binding_criteria: Literal["transformed_affinity", "EL-score"] = "EL-score"
     affinity_cutoff_mhc1: float = 0.638  # 50nM after logistic transform
     affinity_cutoff_mhc2: float = 0.638  # 0.426 = 500nM after logistic transform
     alpha: float = 0.001
@@ -83,7 +85,6 @@ class EpitopeGraphConfig(BaseModel):
     edge_colour = "#BFBFBF"
     weights: Weights = Weights()
     affinity_predictors: List[Literal["mhcflurry", "netmhcpan"]] = [
-        "mhcflurry",
         "netmhcpan",
     ]
     # TODO: Download the human proteome from UniProt and store it locally

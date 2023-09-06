@@ -33,6 +33,7 @@ def compute_population_coverage(
     mhc_type: str,
     average_frequency: pd.DataFrame = None,
     overlap_haplotypes: pd.DataFrame = None,
+    G: nx.Graph = None,
 ) -> float:
     """
     Computes the population coverage of a vaccine design i.e. the fraction of the population that is predicted to have ≥ n peptide-HLA hits produced by the vaccine
@@ -45,7 +46,10 @@ def compute_population_coverage(
         )
         hap_freq, average_frequency = load_haplotypes(hap_freq_path)
         overlap_haplotypes = load_overlap(peptides, hap_freq, config, mhc_type)
-    return optivax_robust(overlap_haplotypes, average_frequency, n_target, peptides)
+    kmers_dict = None if G is None else dict(G.nodes(data=True))
+    return optivax_robust(
+        overlap_haplotypes, average_frequency, n_target, peptides, kmers_dict
+    )
 
 
 def compute_pathogen_coverage(

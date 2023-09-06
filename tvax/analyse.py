@@ -115,6 +115,7 @@ def run_analyses(
             with open(config.antigen_graphs_pkl, "rb") as file:
                 antigen_graphs = pickle.load(file)
         else:
+            print("Constructing antigen graphs")
             antigen_graphs = construct_antigen_graphs(
                 params, config.antigen_graphs_pkl, antigens_dict
             )
@@ -295,6 +296,7 @@ def compute_coverages(
     config: EpitopeGraphConfig,
     antigen: str,
     n_targets: list = list(range(0, 11)),
+    G: nx.Graph = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Compute the pathogen and population coverages for a given set of k-mers from an antigen.
@@ -305,6 +307,7 @@ def compute_coverages(
         kmers,
         n_targets=n_targets,
         config=config,
+        G=G,
     )
     # Select rows where ancestry is Average
     pop_cov_df = pop_cov_df[pop_cov_df["ancestry"] == "Average"]
@@ -343,6 +346,7 @@ def compare_antigens(
             config,
             antigen,
             n_targets,
+            G=epitope_graph,
         )
         # Save the dataframes
         path_cov_dfs.append(path_cov_df)
@@ -533,6 +537,17 @@ def compute_antigen_summary_metrics(
     """
     Compute summary metrics for each antigen
     """
+
+    def _add_pop_cov_col(antigen, mhc, n_target):
+        return [
+            pop_cov_df[
+                (pop_cov_df["antigen"] == antigen)
+                & (pop_cov_df["mhc_type"] == mhc)
+                & (pop_cov_df["n_target"] == n_target)
+            ]["pop_cov"].values[0]
+            for antigen in summary_df["antigen"]
+        ]
+
     # Create empty lists to store the results
     n_seqs = []
     median_seq_len = []
@@ -557,22 +572,11 @@ def compute_antigen_summary_metrics(
             path_cov_df[path_cov_df["antigen"] == antigen]["pathogen_coverage"].mean()
             for antigen in summary_df["antigen"]
         ]
-        summary_df["pop_cov_mhc1_n1"] = [
-            pop_cov_df[
-                (pop_cov_df["antigen"] == antigen)
-                & (pop_cov_df["mhc_type"] == "mhc1")
-                & (pop_cov_df["n_target"] == "n ≥ 1")
-            ]["pop_cov"].values[0]
-            for antigen in summary_df["antigen"]
-        ]
-        summary_df["pop_cov_mhc2_n1"] = [
-            pop_cov_df[
-                (pop_cov_df["antigen"] == antigen)
-                & (pop_cov_df["mhc_type"] == "mhc2")
-                & (pop_cov_df["n_target"] == "n ≥ 1")
-            ]["pop_cov"].values[0]
-            for antigen in summary_df["antigen"]
-        ]
+        for mhc in ["mhc1", "mhc2"]:
+            for n in list(range(0, 11)):
+                summary_df[f"pop_cov_{mhc}_n{n}"] = _add_pop_cov_col(
+                    antigen, mhc, f"n ≥ {n}"
+                )
 
     # Write to file
     summary_df.to_csv(out_path, index=False)
@@ -1095,7 +1099,7 @@ if __name__ == "__main__":
         "aligned": False,
         "decycle": True,
         "equalise_clades": True,
-        "n_clusters": 1,
+        "n_clusters": None,
         "weights": {
             "frequency": 1,
             "population_coverage_mhc1": 1,
@@ -1107,7 +1111,7 @@ if __name__ == "__main__":
         "results_dir": "data/outputs",
         "run_kmer_filtering": False,
         "run_scores_distribution": False,
-        "run_kmer_graphs": True,
+        "run_kmer_graphs": False,
         "run_compare_antigens": True,
     }
     config = AnalysesConfig(**analyses_params)
