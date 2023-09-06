@@ -563,9 +563,13 @@ def plot_mhc_heatmap(
     config: EpitopeGraphConfig,
     alleles: list = None,
     mhc_type: str = "mhc1",
+    binding_criteria: str = "EL-score",
     hspace: float = 0.05,
+    cbar_kws: dict = {"orientation": "vertical", "shrink": 0.8, "aspect": 20},
 ):
-    """ """
+    """
+    Plot the MHC binding heatmap for a given sequence.
+    """
     if mhc_type == "mhc1":
         affinity_cutoff = config.affinity_cutoff_mhc1
         raw_affinity_path = config.raw_affinity_netmhc_path
@@ -578,7 +582,10 @@ def plot_mhc_heatmap(
         hla_loci = ["DRB1", "HLA-DP", "HLA-DQ"]
 
     pmhc_aff_pivot = pd.read_pickle(raw_affinity_path)
-    pmhc_aff_pivot = pmhc_aff_pivot.applymap(lambda x: 1 if x > affinity_cutoff else 0)
+    if binding_criteria == "transformed_affinity":
+        pmhc_aff_pivot = pmhc_aff_pivot.applymap(
+            lambda x: 1 if x > affinity_cutoff else 0
+        )
     path = kmerise_simple(seq, [k])
     pos = [i + 1 for i in range(len(path))]
     try:
@@ -609,6 +616,11 @@ def plot_mhc_heatmap(
     # Generate dataframe of number of peptide-HLA hits per allele
     if not alleles:
         alleles = df["allele"].unique().tolist()
+    peptide_hits_df = (
+        df.loc[df["binding"] == 1, :]
+        if binding_criteria == "transformed_affinity"
+        else df
+    )
     peptide_hits_df = df.loc[df["binding"] == 1, :]
     peptide_hits_df = (
         peptide_hits_df.groupby(["allele"])
@@ -660,24 +672,39 @@ def plot_mhc_heatmap(
 
     # Plot a heatmap for each loci
     for i, loci in enumerate(df["loci"].unique()):
-        cmap = cm.get_cmap(colors[i], 2)
+        cmap = (
+            cm.get_cmap(colors[i], 2)
+            if binding_criteria == "transformed_affinity"
+            else cm.get_cmap(colors[i])
         cmap.set_under(color="white")
-        sns.heatmap(
-            df.loc[df["loci"] == loci, :].pivot_table(
-                values="binding", index=["allele"], columns=["position"]
-            ),
-            cmap=cmap,
-            ax=axes[i],
-            cbar=False,
-            vmin=0.1,
+
+        # Plot the heatmap, capture the returned colorbar
+        cbar_ax = (
+            sns.heatmap(
+                df.loc[df["loci"] == loci, :].pivot_table(
+                    values="binding", index=["allele"], columns=["position"]
+                ),
+                cmap=cmap,
+                ax=axes[i],
+                cbar=True,
+                cbar_kws=cbar_kws,
+                vmin=0,
+                vmax=1,
+            )
+            .collections[0]
+            .colorbar.ax
         )
-        axes[i].tick_params(axis="both", which="both", length=0)
+
+        # Set the title for the colorbar
+        cbar_title = loci.replace("DRB1", "HLA-DRB1")
+        cbar_ax.set_title(cbar_title, position=(0.5, 1.05))
+        axes[i].tick_params(axis="both", which="both", length=0, labelsize=14)
         axes[i].set_xlabel("")
         axes[i].set_ylabel("")
         if i == n_loci - 1:
-            axes[i].set_xlabel("Amino acid position", fontsize=16)
+            axes[i].set_xlabel("Amino acid position", fontsize=20)
         if i == 1:
-            axes[i].set_ylabel("MHC allele", fontsize=16)
+            axes[i].set_ylabel("MHC allele", fontsize=20)
 
     return fig, peptide_hits_df
 
