@@ -1,4 +1,4 @@
-import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import networkx as nx
 import numpy as np
@@ -6,6 +6,7 @@ import os
 import pandas as pd
 from pathlib import Path
 import pickle
+import seaborn as sns
 import subprocess
 
 from Bio import SeqIO
@@ -22,6 +23,7 @@ from tvax.eval import (
 from tvax.graph import build_epitope_graph, f
 from tvax.plot import (
     plot_antigens_comparison,
+    plot_calibration_curves,
     plot_kmer_filtering,
     plot_kmer_graphs,
     plot_population_coverage,
@@ -133,6 +135,13 @@ def run_analyses(
                 params, config.scores_distribution_json
             )
         plot_scores_distribution(scores_dict, config.scores_distribution_fig)
+    if config.run_netmhc_calibration:
+        run_netmhc_calibration(
+            config.netmhc_calibration_csv,
+            config.netmhc_calibration_raw_mhc1_csv,
+            config.netmhc_calibration_raw_mhc2_csv,
+            config.netmhc_calibration_fig,
+        )
     if config.run_kmer_graphs:
         print("Running k-mer graphs...")
         antigen_dict = antigens_dict[config.kmer_graph_antigen]
@@ -269,7 +278,7 @@ def run_parameter_sweep_parallel(
         df[f"pop_cov_mhc1_n_{n_target}"] = []
         df[f"pop_cov_mhc2_n_{n_target}"] = []
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
         # Submit tasks for each combination of w_mhc1 and w_mhc2
         futures = [
             executor.submit(process_weight, w_mhc1, w_mhc2)
@@ -278,7 +287,7 @@ def run_parameter_sweep_parallel(
         ]
 
         # Process the results as they become available
-        for future in concurrent.futures.as_completed(futures):
+        for future in as_completed(futures):
             result = future.result()
             df = df.append(result, ignore_index=True)
             df.to_csv(results_path, index=False)
@@ -486,6 +495,165 @@ def compute_n_filtered_kmers(
     n_filtered_kmers_df = pd.DataFrame(n_filtered_kmers)
 
     return n_filtered_kmers_df
+
+
+#########################################################
+# MHC Calibration Curves for NetMHCpan validation dataset
+#########################################################
+
+
+def predict_netmhcpan(netmhc_df, peptides_dir, alleles, mhc_type, num_threads):
+    """Run NetMHCpan/NetMHCIIpan and return binding predictions."""
+
+    dfs = []
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = []
+        for allele in alleles:
+            allele_peptides_df = netmhc_df[netmhc_df["allele"] == allele][
+                ["peptide"]
+            ].drop_duplicates()
+            allele_peptides_path = os.path.join(peptides_dir, f"peptides_{allele}.txt")
+            allele_peptides_df["peptide"].to_csv(
+                allele_peptides_path, index=False, header=False
+            )
+
+            futures.append(
+                executor.submit(
+                    predict_affinity_netmhcpan,
+                    allele_peptides_path,
+                    allele,
+                    mhc_type,
+                    peptides_dir,
+                )
+            )
+
+        for future in as_completed(futures):
+            result = future.result()
+            dfs.append(result)
+
+    netmhc_preds = pd.concat(dfs)
+
+    return netmhc_preds
+
+
+def predict_affinity_netmhcpan(peptides_path, allele, mhc_type, results_dir):
+    """Run NetMHCpan/NetMHCIIpan for a single allele."""
+
+    # Run NetMHCpan/NetMHCIIpan
+    netmhcpan_cmd = "netMHCpan" if mhc_type == "mhc1" else "netMHCIIpan"
+
+    preds_dir = f"{results_dir}/net{mhc_type}_preds"
+    os.makedirs(preds_dir, exist_ok=True)
+
+    peptides_flag = "-p" if mhc_type == "mhc1" else "-inptype 1 -f"
+    outpath = f"{preds_dir}/{allele}.xls"
+
+    cmd = f"{netmhcpan_cmd} {peptides_flag} {peptides_path} -a {allele} -BA -xls -xlsfile {outpath}"
+    subprocess.run(cmd, shell=True)
+
+    # Process predictions
+    df = pd.read_csv(outpath, delimiter="\t", skiprows=[0])
+    df["mhc_class"] = mhc_type
+    df["allele"] = allele
+    df = df.rename(
+        columns={
+            "Peptide": "peptide",
+            "Core": "core",
+            "Score_BA": "BA-score",
+            "Rank_BA": "BA_Rank",
+            "Score": "EL-score",
+            "Rank": "EL_Rank",
+        }
+    )
+
+    return df
+
+
+def run_netmhc_calibration(
+    netmhc_eval_path: str, netmhc1_eval_path: str, netmhc2_eval_path: str, out_path: str
+):
+    """
+    Run NetMHCpan/NetMHCIIpan on the validation dataset, save the predictions and plot the results.
+    """
+
+    if os.path.exists(netmhc_eval_path):
+        print("Loading preprocessed NetMHCpan evaluation data...")
+        netmhc_preds = pd.read_csv(netmhc_eval_path)
+    else:
+        print("Preprocessed data not found, generating from raw datasets...")
+
+        # glob_pattern = "/home/phil/Downloads/NetMHCIIpan_train/test_EL*.txt"
+        # out_path = "data/input/analyses/NetMHCIIpan_EL_eval.txt"
+        # alleles_file = "../optivax/scoring/MHC2_allele_mary_cleaned.txt"
+        # allele_names_path = "~/Downloads/NetMHCIIpan_train/allelelist.txt"
+        # allele_names_df = pd.read_csv(allele_names_path, sep=' ', header=None, names=['allele_name', 'allele_short_name'])
+        # allele_name_to_short_name = allele_names_df.set_index('allele_name')['allele_short_name'].to_dict()
+        # alleles_df = pd.read_csv(alleles_file, sep='\t', header=None, names=['allele'])
+        # dfs = []
+
+        # # Read dfs
+        # for file in glob.glob(glob_pattern):
+        #     print(file)
+        #     df = pd.read_csv(file, sep="\t", names=["peptide","binder","allele_name","core"])
+        #     dfs.append(df)
+
+        # # Process dfs
+        # df = pd.concat(dfs)
+        # df['allele_name'] = df['allele_name'].map(allele_name_to_short_name).combine_first(df['allele_name'])
+        # df = df.rename(columns={"allele_name": "allele"})
+        # df = df[df["allele"].isin(alleles_df["allele"].values)]
+
+        # df[["peptide","binder","allele"]].to_csv(out_path, sep=" ", index=False, header=False)
+
+        # Load and preprocess
+        netmhc1_df = pd.read_csv(
+            netmhc1_eval_path, sep=" ", names=["peptide", "binder", "allele"]
+        )
+        netmhc2_df = pd.read_csv(
+            netmhc2_eval_path, sep=" ", names=["peptide", "binder", "allele"]
+        )
+
+        netmhc1_df["mhc_type"] = "mhc1"
+        netmhc2_df["mhc_type"] = "mhc2"
+
+        netmhc_df = pd.concat([netmhc1_df, netmhc2_df])
+
+        # Filter peptides
+        netmhc_df = netmhc_df[netmhc_df["peptide"].str.len().isin([9, 15])]
+
+        # Define parameters
+        peptides_dir = "data/outputs/data/netmhc_bind_probs"
+        num_threads = 4
+
+        mhc_alleles = {
+            "mhc1": netmhc_df[netmhc_df["mhc_type"] == "mhc1"]["allele"]
+            .unique()
+            .tolist(),
+            "mhc2": netmhc_df[netmhc_df["mhc_type"] == "mhc2"]["allele"]
+            .unique()
+            .tolist(),
+        }
+
+        # Make predictions
+        netmhc_preds = predict_netmhcpan(
+            netmhc_df, peptides_dir, mhc_alleles, num_threads
+        )
+
+        # Process predictions
+        netmhc_preds["nM"] = 50000 ** (1 - netmhc_preds["BA-score"])
+        netmhc_preds["EL_Rank"] = 1 - netmhc_preds["EL_Rank"] / 100
+
+        # Add back missing columns
+        netmhc_preds = netmhc_preds.merge(
+            netmhc_df, on=["peptide", "allele"], how="left"
+        )
+
+        # Save preprocessed data
+        netmhc_preds.to_csv(netmhc_eval_path, index=False)
+
+    # Plot calibration curves
+    palette = sns.color_palette("colorblind", n_colors=netmhc_preds["allele"].nunique())
+    plot_calibration_curves(netmhc_preds, out_path, palette)
 
 
 def cons_vs_path_cov(
@@ -866,7 +1034,7 @@ def pred_n_hits_parallel(
         df["transformed_affinity"] = df["nM"].apply(transform_affinity)
         return df
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
         # Submit tasks for each combination of mhc_class and allele
         futures = [
             executor.submit(process_allele, mhc_class, allele)
@@ -875,7 +1043,7 @@ def pred_n_hits_parallel(
         ]
 
         # Process the results as they become available
-        for future in concurrent.futures.as_completed(futures):
+        for future in as_completed(futures):
             result = future.result()
             dfs.append(result)
 
@@ -1111,8 +1279,9 @@ if __name__ == "__main__":
         "results_dir": "data/outputs",
         "run_kmer_filtering": False,
         "run_scores_distribution": False,
+        "run_netmhc_calibration": True,
         "run_kmer_graphs": False,
-        "run_compare_antigens": True,
+        "run_compare_antigens": False,
     }
     config = AnalysesConfig(**analyses_params)
     run_analyses(config, kmer_graph_params)

@@ -449,6 +449,92 @@ def plot_kmer_filtering(
     plt.savefig(out_path, bbox_inches="tight")
 
 
+def compute_calibration_curve(y_true: list, y_prob: list, n_bins: int = 10):
+    """
+    Compute calibration curve from true labels and predicted probabilities.
+    """
+
+    # Bin the predicted probabilities
+    bin_limits = np.linspace(0, 1, n_bins + 1)
+    bin_centers = (bin_limits[:-1] + bin_limits[1:]) / 2
+    true_proportions = []
+    pred_means = []
+
+    for i in range(n_bins):
+        left, right = bin_limits[i], bin_limits[i + 1]
+        mask = (y_prob >= left) & (y_prob < right)
+
+        # Compute the mean true and predicted values in each bin
+        if mask.sum() > 0:
+            true_proportions.append(y_true[mask].mean())
+            pred_means.append(y_prob[mask].mean())
+
+    return np.array(true_proportions), np.array(pred_means)
+
+
+def plot_calibration_curves(
+    netmhc_df: pd.DataFrame,
+    out_path: str = None,
+    palette: list = sns.color_palette("colorblind"),
+) -> None:
+    """
+    Plot calibration curves for MHC-I and MHC-II.
+    """
+
+    fig, ax = plt.subplots(1, 2, figsize=(18, 10))
+
+    for mhc_idx, mhc_type in enumerate(["mhc1", "mhc2"]):
+        mhc_name = "MHC-I" if mhc_type == "mhc1" else "MHC-II"
+
+        # Subset data
+        mhc_df = netmhc_df[netmhc_df["mhc_type"] == mhc_type]
+
+        # Get sorted alleles
+        sorted_alleles = sorted(mhc_df["allele"].unique())
+
+        # Plot calibration for each allele
+        for allele_idx, allele in enumerate(sorted_alleles):
+            allele_df = mhc_df[mhc_df["allele"] == allele]
+            predicted_probs = allele_df["EL-score"]
+            true_labels = allele_df["binder"]
+
+            frac_pos, mean_pred_value = compute_calibration_curve(
+                true_labels, predicted_probs
+            )
+
+            ax[mhc_idx].plot(
+                mean_pred_value,
+                frac_pos,
+                marker=".",
+                label=allele,
+                color=palette[allele_idx],
+            )
+
+        ax[mhc_idx].set_title(f"Calibration Plot for {mhc_name}", fontsize=18)
+        ax[mhc_idx].set_xlabel("Mean Eluted Ligand (EL) Score", fontsize=16)
+        ax[mhc_idx].set_ylabel("Fraction of Positives", fontsize=16)
+        ax[mhc_idx].legend(title="Allele", bbox_to_anchor=(1.05, 1), loc="upper left")
+
+        ax[mhc_idx].tick_params(axis="x", labelsize=14)
+        ax[mhc_idx].tick_params(axis="y", labelsize=14)
+
+    # Add subplot labels
+    for subplot_idx, subplot_ax in enumerate(ax.ravel()):
+        subplot_ax.text(
+            -0.05,
+            1.1,
+            string.ascii_uppercase[subplot_idx],
+            transform=subplot_ax.transAxes,
+            size=28,
+            weight="bold",
+        )
+        subplot_ax.plot([0, 1], [0, 1], linestyle="--", color="gray")
+
+    plt.tight_layout()
+    plt.subplots_adjust(right=0.85)
+    plt.savefig(out_path, bbox_inches="tight")
+
+
 def plot_corr(
     G: nx.Graph, x: str = "frequency", y: str = "population_coverage_mhc1"
 ) -> plt.figure:

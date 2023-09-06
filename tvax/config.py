@@ -234,6 +234,12 @@ class AnalysesConfig(BaseModel):
     run_scores_distribution: bool = True
     scores_distribution_json: Path = None
     scores_distribution_fig: Path = None
+    # NetMHCpan Calibration
+    run_netmhc_calibration: bool = True
+    netmhc_calibration_raw_mhc1_csv: Path = None
+    netmhc_calibration_raw_mhc2_csv: Path = None
+    netmhc_calibration_csv: Path = None
+    netmhc_calibration_fig: Path = None
     # K-mer graphs
     run_kmer_graphs: bool = True
     kmer_graph_antigen: str = "Sarbecovirus S RBD"
@@ -283,6 +289,42 @@ class AnalysesConfig(BaseModel):
             results_dir = values.get("results_dir")
             scores_distribution_fig = f"{results_dir}/figures/scores_distribution.svg"
             return Path(scores_distribution_fig)
+        return Path(value)
+
+    @validator("netmhc_calibration_raw_mhc1_csv", pre=True, always=True)
+    def validate_netmhc_calibration_raw_mhc1_csv(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            netmhc_calibration_raw_mhc1_csv = (
+                f"{results_dir}/data/netmhc_calibration_raw_mhc1.csv"
+            )
+            return Path(netmhc_calibration_raw_mhc1_csv)
+        return Path(value)
+
+    @validator("netmhc_calibration_raw_mhc2_csv", pre=True, always=True)
+    def validate_netmhc_calibration_raw_mhc2_csv(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            netmhc_calibration_raw_mhc2_csv = (
+                f"{results_dir}/data/netmhc_calibration_raw_mhc2.csv"
+            )
+            return Path(netmhc_calibration_raw_mhc2_csv)
+        return Path(value)
+
+    @validator("netmhc_calibration_csv", pre=True, always=True)
+    def validate_netmhc_calibration_csv(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            netmhc_calibration_csv = f"{results_dir}/data/netmhc_calibration.csv"
+            return Path(netmhc_calibration_csv)
+        return Path(value)
+
+    @validator("netmhc_calibration_fig", pre=True, always=True)
+    def validate_netmhc_calibration_fig(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            netmhc_calibration_fig = f"{results_dir}/figures/netmhc_calibration.svg"
+            return Path(netmhc_calibration_fig)
         return Path(value)
 
     @validator("kmer_graphs_fig", pre=True, always=True)
