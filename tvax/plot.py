@@ -676,6 +676,7 @@ def plot_mhc_heatmap(
             cm.get_cmap(colors[i], 2)
             if binding_criteria == "transformed_affinity"
             else cm.get_cmap(colors[i])
+        )
         cmap.set_under(color="white")
 
         # Plot the heatmap, capture the returned colorbar
