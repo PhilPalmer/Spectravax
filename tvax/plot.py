@@ -481,6 +481,7 @@ def plot_calibration_curves(
     Plot calibration curves for MHC-I and MHC-II.
     """
 
+    sns.set_theme(style="whitegrid")
     fig, ax = plt.subplots(1, 2, figsize=(18, 10))
 
     for mhc_idx, mhc_type in enumerate(["mhc1", "mhc2"]):
@@ -488,6 +489,11 @@ def plot_calibration_curves(
 
         # Subset data
         mhc_df = netmhc_df[netmhc_df["mhc_type"] == mhc_type]
+
+        # Rename the DRB1 alleles for consistency
+        mhc_df["allele"] = (
+            mhc_df["allele"].str.replace("DRB1", "HLA-DRB1").str.replace("_", "-")
+        )
 
         # Get sorted alleles
         sorted_alleles = sorted(mhc_df["allele"].unique())
@@ -513,6 +519,8 @@ def plot_calibration_curves(
         ax[mhc_idx].set_title(f"Calibration Plot for {mhc_name}", fontsize=18)
         ax[mhc_idx].set_xlabel("Mean Eluted Ligand (EL) Score", fontsize=16)
         ax[mhc_idx].set_ylabel("Fraction of Positives", fontsize=16)
+        ax[mhc_idx].set_xlim([0, 1])
+        ax[mhc_idx].set_ylim([0, 1])
         ax[mhc_idx].legend(title="Allele", bbox_to_anchor=(1.05, 1), loc="upper left")
 
         ax[mhc_idx].tick_params(axis="x", labelsize=14)
