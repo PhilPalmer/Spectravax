@@ -234,6 +234,11 @@ class AnalysesConfig(BaseModel):
     run_scores_distribution: bool = True
     scores_distribution_json: Path = None
     scores_distribution_fig: Path = None
+    # Binding criteria
+    run_binding_criteria: bool = True
+    binding_criteria_csv: Path = None
+    binding_crtieria_dir: Path = None
+    binding_criteria_fig: Path = None
     # NetMHCpan Calibration
     run_netmhc_calibration: bool = True
     netmhc_calibration_raw_mhc1_csv: Path = None
@@ -289,6 +294,31 @@ class AnalysesConfig(BaseModel):
             results_dir = values.get("results_dir")
             scores_distribution_fig = f"{results_dir}/figures/scores_distribution.svg"
             return Path(scores_distribution_fig)
+        return Path(value)
+
+    @validator("binding_criteria_csv", pre=True, always=True)
+    def validate_binding_criteria_csv(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            binding_criteria_csv = f"{results_dir}/data/binding_criteria.csv"
+            return Path(binding_criteria_csv)
+        return Path(value)
+
+    @validator("binding_crtieria_dir", pre=True, always=True)
+    def validate_binding_crtieria_dir(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            value = f"{results_dir}/data/binding_criteria"
+        if not Path(value).exists():
+            Path(value).mkdir(parents=True, exist_ok=True)
+        return value
+
+    @validator("binding_criteria_fig", pre=True, always=True)
+    def validate_binding_criteria_fig(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            binding_criteria_fig = f"{results_dir}/figures/binding_criteria.svg"
+            return Path(binding_criteria_fig)
         return Path(value)
 
     @validator("netmhc_calibration_raw_mhc1_csv", pre=True, always=True)

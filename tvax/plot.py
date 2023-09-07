@@ -21,6 +21,7 @@ from tvax.score import load_haplotypes, load_overlap, optivax_robust
 from tvax.seq import msa, path_to_seq, kmerise_simple
 from scipy import stats
 from scipy.interpolate import griddata
+from sklearn.metrics import roc_auc_score, roc_curve, brier_score_loss, log_loss
 
 
 """
@@ -449,6 +450,11 @@ def plot_kmer_filtering(
     plt.savefig(out_path, bbox_inches="tight")
 
 
+#####################################
+# Plot evaluation of binding criteria
+#####################################
+
+
 def compute_calibration_curve(y_true: list, y_prob: list, n_bins: int = 10):
     """
     Compute calibration curve from true labels and predicted probabilities.
@@ -470,6 +476,138 @@ def compute_calibration_curve(y_true: list, y_prob: list, n_bins: int = 10):
             pred_means.append(y_prob[mask].mean())
 
     return np.array(true_proportions), np.array(pred_means)
+
+
+def plot_binding_criteria_eval(
+    concat_df: str, out_path: str, mhc2_allele: str = "DRB1_0401"
+):
+    """Evaluate models and plot results."""
+
+    def compute_precision_recall(y_true, y_prob, threshold=0.5):
+        y_pred = (y_prob >= threshold).astype(int)
+        tp = ((y_true == 1) & (y_pred == 1)).sum()
+        fp = ((y_true == 0) & (y_pred == 1)).sum()
+        fn = ((y_true == 1) & (y_pred == 0)).sum()
+        precision = tp / (tp + fp)
+        recall = tp / (tp + fn)
+        return precision, recall
+
+    scores = [
+        "NetMHCpan4.1_BA_score",
+        "NetMHCpan4.1_EL_score",
+        "MHCFlurry2.0.6_BA_score",
+        "MHCFlurry2.0.6_processing_score",
+        "MHCFlurry2.0.6_presentation_score",
+        "Ensemble_BA_score",
+        "Ensemble_EL_score",
+    ]
+
+    sns.set_theme(style="whitegrid")
+    palette = sns.color_palette("colorblind")
+
+    mhc2_scores = [score for score in scores if "NetMHC" in score]
+    mhc_dfs = {
+        "Class I": (concat_df[concat_df["allele"] != mhc2_allele], scores),
+        "Class II": (concat_df[concat_df["allele"] == mhc2_allele], mhc2_scores),
+    }
+
+    summary_data = []
+
+    fig, ax = plt.subplots(2, 2, figsize=(12, 12))
+
+    for mhc_idx, (mhc_name, (mhc_df, mhc_scores)) in enumerate(mhc_dfs.items()):
+        for idx, score in enumerate(mhc_scores):
+            model_name = score.split("_")[0]
+            if mhc_name == "Class II" and "NetMHCpan" in model_name:
+                model_name = "NetMHCIIpan4.0"
+            colour = palette[idx]
+            score_name = score.split("_")[1]
+            if score_name == "processing":
+                score_name = "AP"
+            if score_name == "presentation":
+                score_name = "EL"
+            if "BA" in score_name:
+                if mhc_name == "Class I":
+                    thresh = 50
+                elif mhc_name == "Class II":
+                    thresh = 500
+                pr_threshold = 1 - np.log(thresh) / np.log(50000)
+                pr_threshold_text = f"≤ {thresh}nM"
+            else:
+                pr_threshold = 0.5
+                pr_threshold_text = "≥ 0.5"
+
+            mhc_df[score] = mhc_df[score].replace([np.inf, -np.inf], np.nan)
+            mhc_df.dropna(subset=[score], inplace=True)
+
+            predicted_probs = mhc_df[score]
+            true_labels = mhc_df["binder"]
+
+            auc_roc = roc_auc_score(true_labels, predicted_probs)
+            fpr, tpr, _ = roc_curve(true_labels, predicted_probs)
+            precision, recall = compute_precision_recall(
+                true_labels, predicted_probs, threshold=pr_threshold
+            )
+            brier = brier_score_loss(true_labels, predicted_probs)
+            logloss = log_loss(true_labels, predicted_probs)
+
+            summary_data.append(
+                {
+                    "MHC": mhc_name,
+                    "Model": model_name,
+                    "Score Name": score_name,
+                    "Binding Criterion": pr_threshold_text,
+                    "AUROC": auc_roc,
+                    "Precision": precision,
+                    "Recall": recall,
+                    "Brier Score": brier,
+                    "Log Loss": logloss,
+                }
+            )
+
+            ax[mhc_idx, 0].plot(
+                fpr,
+                tpr,
+                color=colour,
+                label=f"{model_name} {score_name} (AUC = {auc_roc:.2f})",
+            )
+            ax[mhc_idx, 0].set_title(f"ROC Curve for {mhc_name}")
+            ax[mhc_idx, 0].set_xlabel("False Positive Rate")
+            ax[mhc_idx, 0].set_ylabel("True Positive Rate")
+            ax[mhc_idx, 0].legend()
+
+            fraction_of_positives, mean_predicted_value = compute_calibration_curve(
+                true_labels, predicted_probs
+            )
+            ax[mhc_idx, 1].plot(
+                mean_predicted_value,
+                fraction_of_positives,
+                marker=".",
+                color=colour,
+                label=f"{model_name} {score_name}",
+            )
+            ax[mhc_idx, 1].set_title(f"Calibration Plot for {mhc_name}")
+            ax[mhc_idx, 1].set_xlabel("Mean Predicted Probability")
+            ax[mhc_idx, 1].set_ylabel("Fraction of Positives")
+
+    for subplot_idx, subplot_ax in enumerate(ax.ravel()):
+        subplot_ax.text(
+            -0.05,
+            1.1,
+            string.ascii_uppercase[subplot_idx],
+            transform=subplot_ax.transAxes,
+            size=24,
+            weight="bold",
+        )
+        subplot_ax.plot([0, 1], [0, 1], linestyle="--", color="gray")
+
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.90)
+    plt.savefig(out_path, bbox_inches="tight")
+
+    summary_df = pd.DataFrame(summary_data)
+
+    return summary_df
 
 
 def plot_calibration_curves(

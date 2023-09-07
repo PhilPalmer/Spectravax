@@ -23,6 +23,7 @@ from tvax.eval import (
 from tvax.graph import build_epitope_graph, f
 from tvax.plot import (
     plot_antigens_comparison,
+    plot_binding_criteria_eval,
     plot_calibration_curves,
     plot_kmer_filtering,
     plot_kmer_graphs,
@@ -135,6 +136,11 @@ def run_analyses(
                 params, config.scores_distribution_json
             )
         plot_scores_distribution(scores_dict, config.scores_distribution_fig)
+    if config.run_binding_criteria:
+        binding_criteria_df = load_and_preprocess_data(
+            config.binding_criteria_csv, config.binding_crtieria_dir
+        )
+        plot_binding_criteria_eval(binding_criteria_df, config.binding_criteria_fig)
     if config.run_netmhc_calibration:
         run_netmhc_calibration(
             config.netmhc_calibration_csv,
@@ -495,6 +501,172 @@ def compute_n_filtered_kmers(
     n_filtered_kmers_df = pd.DataFrame(n_filtered_kmers)
 
     return n_filtered_kmers_df
+
+
+###############################################################
+# Evaluate the binding criteria using SARS-CoV-2 stability data
+###############################################################
+
+
+def load_and_preprocess_data(
+    filepath: str,
+    workdir: str,
+    mhc2_allele: str = "DRB1_0401",
+    num_threads: int = 4,
+):
+    """Load and preprocess the experimental peptide-MHC binding data."""
+    xls = pd.ExcelFile(filepath)
+    dfs = []
+    sheet_names = xls.sheet_names
+
+    # Process each sheet except the "BINDERS" sheet
+    for sheet in sheet_names:
+        if sheet != "BINDERS":
+            df = xls.parse(sheet)
+            df["allele"] = sheet
+            dfs.append(df)
+
+    # Concatenate the dataframes
+    concat_df = pd.concat(dfs, ignore_index=True)
+    concat_df["binder"] = 0
+    binders_df = xls.parse("BINDERS")
+
+    # Update the binder column based on the "BINDERS" sheet
+    for _, row in binders_df.iterrows():
+        peptides = row["peptide_seq"]
+        alleles = row["allele"].split(", ")
+        for allele in alleles:
+            concat_df.loc[
+                (concat_df["peptide_seq"] == peptides)
+                & (concat_df["allele"] == allele),
+                "binder",
+            ] = 1
+
+    # Match the mhc2_allele format with netMHCIIpan
+    concat_df.loc[
+        concat_df["allele"] == mhc2_allele.replace("_", "-"), "allele"
+    ] = mhc2_allele
+    # Rename the columns
+    concat_df = concat_df.rename(columns={"peptide_seq": "peptide"})
+
+    # MHCflurry predictions
+    mhc1_df = concat_df.copy()
+    mhc1_df = mhc1_df[mhc1_df["allele"] != mhc2_allele]
+    peptides = list(mhc1_df["peptide"].unique())
+    alleles = {
+        a: [a] for a in mhc1_df["allele"].unique()
+    }  # f"HLA-{a[0]}*{a[1:3]}:{a[3:]}"
+    mhcflurry_preds = predict_mhcflurry(peptides, alleles)
+
+    # NetMHC predictions
+    peptides_df = pd.DataFrame(concat_df["peptide"].unique(), columns=["peptide"])
+    peptides_path = f"{workdir}/peptides.txt"
+    mhc_alleles = {
+        "mhc1": [f"HLA-{a}" for a in mhc1_df["allele"].unique()],
+        "mhc2": [mhc2_allele],
+    }
+
+    # Setup
+    dfs = []
+    peptides_df["peptide"].to_csv(peptides_path, index=False, header=False)
+    os.makedirs(workdir, exist_ok=True)
+
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        # Submit tasks for each combination of mhc_class and allele
+        futures = [
+            executor.submit(
+                predict_affinity_netmhcpan, peptides_path, allele, mhc_type, workdir
+            )
+            for mhc_type, alleles in mhc_alleles.items()
+            for allele in alleles
+        ]
+
+        # Process the results as they become available
+        for future in as_completed(futures):
+            result = future.result()
+            dfs.append(result)
+
+    netmhc_preds = pd.concat(dfs)
+    netmhc_preds["allele"] = netmhc_preds["allele"].str.replace("HLA-", "")
+    netmhc_preds["nM"] = 50000 ** (1 - netmhc_preds["BA-score"])
+    netmhc_preds["EL-Rank"] = 1 - netmhc_preds["EL_Rank"] / 100
+
+    # Combine the dataframes
+    concat_df = combine_dataframes(
+        concat_df, mhcflurry_preds, netmhc_preds, mhc2_allele
+    )
+
+    return concat_df
+
+
+def predict_mhcflurry(peptides, alleles):
+    """Make binding predictions with MHCflurry."""
+    import mhcflurry
+
+    predictor = mhcflurry.Class1PresentationPredictor().load()
+    mhcflurry_preds = predictor.predict(peptides=peptides, alleles=alleles)
+    mhcflurry_preds = mhcflurry_preds.rename(columns={"best_allele": "allele"})
+    mhcflurry_preds["affinity-score"] = 1 - np.log(
+        mhcflurry_preds["affinity"]
+    ) / np.log(50000)
+
+    return mhcflurry_preds
+
+
+def combine_dataframes(
+    concat_df, mhcflurry_preds, netmhc_preds, mhc2_allele: str = "DRB1_0401"
+):
+    """Combine dataframes and ensemble the MHCFlurry and NetMHCpan scores."""
+    # Add the presentation score from the mhcflurry_preds to the concat_df
+    concat_df = concat_df.merge(
+        mhcflurry_preds[
+            [
+                "peptide",
+                "allele",
+                "affinity",
+                "affinity-score",
+                "processing_score",
+                "presentation_score",
+            ]
+        ],
+        on=["peptide", "allele"],
+        how="left",
+    )
+
+    # Add the EL-score and BA-score from the netmhc_preds to the concat_df
+    concat_df = concat_df.merge(
+        netmhc_preds[["peptide", "allele", "nM", "BA-score", "EL-score", "EL-Rank"]],
+        on=["peptide", "allele"],
+        how="left",
+    )
+
+    # Rename the columns
+    cols = {
+        "affinity": "MHCFlurry2.0.6_BA",
+        "affinity-score": "MHCFlurry2.0.6_BA_score",
+        "processing_score": "MHCFlurry2.0.6_processing_score",
+        "presentation_score": "MHCFlurry2.0.6_presentation_score",
+        "nM": "NetMHCpan4.1_BA",
+        "BA-score": "NetMHCpan4.1_BA_score",
+        "EL-score": "NetMHCpan4.1_EL_score",
+        "EL-Rank": "NetMHCpan4.1_EL_Rank",
+    }
+    concat_df = concat_df.rename(columns=cols)
+
+    # Ensemble the MHCFlurry and NetMHCpan scores
+    concat_df["Ensemble_BA"] = concat_df[["MHCFlurry2.0.6_BA", "NetMHCpan4.1_BA"]].mean(
+        axis=1
+    )
+    concat_df.loc[concat_df["allele"] == mhc2_allele, "Ensemble_BA"] = np.nan
+    concat_df["Ensemble_BA_score"] = 1 - np.log(concat_df["Ensemble_BA"]) / np.log(
+        50000
+    )
+    concat_df["Ensemble_EL_score"] = concat_df[
+        ["MHCFlurry2.0.6_presentation_score", "NetMHCpan4.1_EL_score"]
+    ].mean(axis=1)
+    concat_df.loc[concat_df["allele"] == mhc2_allele, "Ensemble_BA"] = np.nan
+
+    return concat_df
 
 
 #########################################################
@@ -1279,6 +1451,7 @@ if __name__ == "__main__":
         "results_dir": "data/outputs",
         "run_kmer_filtering": False,
         "run_scores_distribution": False,
+        "run_binding_criteria": False,
         "run_netmhc_calibration": True,
         "run_kmer_graphs": False,
         "run_compare_antigens": False,
