@@ -53,6 +53,7 @@ class Weights(BaseModel):
     frequency: float = 1
     population_coverage_mhc1: float = 1
     population_coverage_mhc2: float = 1
+    clade: float = 1
 
 
 class EpitopeGraphConfig(BaseModel):
@@ -71,7 +72,6 @@ class EpitopeGraphConfig(BaseModel):
     binding_criteria: Literal["transformed_affinity", "EL-score"] = "EL-score"
     affinity_cutoff_mhc1: float = 0.638  # 50nM after logistic transform
     affinity_cutoff_mhc2: float = 0.638  # 0.426 = 500nM after logistic transform
-    alpha: float = 0.001
     # TODO: Use elbow method to determine the optimal conservation threshold
     conservation_threshold: float = 0.01  # Exclude k-mers with < 1% conservation
     aligned: bool = False

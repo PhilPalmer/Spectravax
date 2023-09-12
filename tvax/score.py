@@ -45,14 +45,15 @@ def add_score(kmers_dict: dict, config: EpitopeGraphConfig) -> dict:
             f_cons = kmers_dict[kmer]["frequency"]
             f_mhc1 = kmers_dict[kmer]["population_coverage_mhc1"]
             f_mhc2 = kmers_dict[kmer]["population_coverage_mhc2"]
-            w_clade = kmers_dict[kmer]["clade_weight"]
+            # TODO: Rename "clade_weight" -> "clade"
+            f_clade = kmers_dict[kmer]["clade_weight"]
             w_cons = config.weights.frequency
             w_mhc1 = config.weights.population_coverage_mhc1
             w_mhc2 = config.weights.population_coverage_mhc2
-            alpha = config.alpha
+            w_clade = config.weights.clade
             kmers_dict[kmer]["score"] = (
-                f_cons * w_cons * (f_mhc1 * w_mhc1 + f_mhc2 * w_mhc2)
-            ) * w_clade
+                (f_cons * w_cons) * (f_mhc1 * w_mhc1 + f_mhc2 * w_mhc2)
+            ) * (f_clade * w_clade)
     if config.scoring_method == "weighted_average":
         for kmer in kmers_dict:
             kmers_dict[kmer]["score"] = sum(
