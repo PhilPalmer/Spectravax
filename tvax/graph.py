@@ -5,7 +5,7 @@ import random
 
 from itertools import product
 from tvax.config import EpitopeGraphConfig
-from tvax.seq import load_fasta, kmerise, kmerise_simple, assign_clades
+from tvax.seq import preprocess_seqs, load_fasta, kmerise, kmerise_simple, assign_clades
 from tvax.score import add_scores
 from typing import Optional
 
@@ -26,6 +26,18 @@ def build_epitope_graph(
     if not kmers_dict:
         # Load the FASTA file
         if not seqs_dict:
+            if not config.fasta_path:
+                config.fasta_path = (
+                    f"{config.results_dir}/Seq_Preprocessing/{config.prefix}.fasta"
+                )
+                config.fasta_path = preprocess_seqs(
+                    config.fasta_nt_path,
+                    config.fasta_path,
+                    config.prefix,
+                    config.results_dir,
+                    config.seq_identity,
+                    config.n_threads,
+                )
             seqs_dict = load_fasta(config.fasta_path)
         N = len(seqs_dict)
         # Assign the sequences to clades

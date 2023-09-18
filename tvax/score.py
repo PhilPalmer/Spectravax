@@ -270,7 +270,7 @@ def predict_affinity_netmhcpan(
 
     else:
         # Run NetMHCpan
-        s = scheduler(config.netmhc_max_procs, config.redun_db_path)
+        s = scheduler(config.n_threads, config.redun_db_path)
         s.load()
         allele_paths = s.run(
             run_netmhcpan(peptides["peptide"], hla_alleles, mhc_type, config)

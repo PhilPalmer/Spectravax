@@ -50,10 +50,10 @@ class Weights(BaseModel):
     Config Object for Weights to Score Epitopes in the Graph.
     """
 
-    frequency: float = 1
-    population_coverage_mhc1: float = 1
-    population_coverage_mhc2: float = 1
-    clade: float = 1
+    frequency: float = 1.0
+    population_coverage_mhc1: float = 1.0
+    population_coverage_mhc2: float = 1.0
+    clade: float = 1.0
 
 
 class EpitopeGraphConfig(BaseModel):
@@ -61,6 +61,7 @@ class EpitopeGraphConfig(BaseModel):
     Config Object for Epitope Graph Construction.
     """
 
+    fasta_nt_path: Path = None
     fasta_path: Path = None
     prefix: str = None
     results_dir: Path = None
@@ -68,8 +69,8 @@ class EpitopeGraphConfig(BaseModel):
     m: int = 1
     n_target: int = 1
     robust: bool = True
-    scoring_method: Literal["weighted_average", "multiplicative"] = "multiplicative"
     seq_identity: float = 0.95
+    scoring_method: Literal["weighted_average", "multiplicative"] = "multiplicative"
     binding_criteria: Literal["transformed_affinity", "EL-score"] = "EL-score"
     affinity_cutoff_mhc1: float = 0.638  # 50nM after logistic transform
     affinity_cutoff_mhc2: float = 0.638  # 0.426 = 500nM after logistic transform
@@ -80,7 +81,7 @@ class EpitopeGraphConfig(BaseModel):
     equalise_clades: bool = True
     n_clusters: Optional[int] = None
     peptide_chunk_size: int = 500
-    netmhc_max_procs: int = 4
+    n_threads: int = 4
     redun_db_path: Path = "redun.db"
     netmhcpan_tmpdir: Path = "/tmp/netMHCpanXXXXXX"
     edge_colour = "#BFBFBF"
@@ -109,18 +110,29 @@ class EpitopeGraphConfig(BaseModel):
     # TODO: Add file path for list of alleles
     alleles: List[str] = default_alleles
 
+    @validator("fasta_nt_path", pre=True, always=True)
+    def validate_fasta_nt_path(cls, value):
+        if value is not None and not Path(value).exists():
+            raise ValueError(f"File {value} does not exist.")
+        return value
+
     @validator("fasta_path", pre=True, always=True)
-    def validate_fasta_path(cls, value):
-        if value is None:
+    def validate_fasta_path(cls, value, values):
+        fasta_nt_path = values.get("fasta_nt_path")
+        print(f"Fasta NT path: {fasta_nt_path}")
+        if value is None and fasta_nt_path is None:
             raise ValueError("Please provide a FASTA file path.")
-        if not Path(value).exists():
+        if value is not None and not Path(value).exists():
             raise ValueError(f"File {value} does not exist.")
         return value
 
     @validator("prefix", pre=True, always=True)
     def validate_prefix(cls, value, values):
         if value is None:
-            fasta_path = values.get("fasta_path")
+            if values.get("fasta_path") is not None:
+                fasta_path = values.get("fasta_path")
+            if values.get("fasta_nt_path") is not None:
+                fasta_path = values.get("fasta_nt_path")
             fasta_base = os.path.splitext(os.path.basename(fasta_path))[0]
             return fasta_base
         else:
@@ -131,7 +143,7 @@ class EpitopeGraphConfig(BaseModel):
         if value is None:
             prefix = values.get("prefix")
             value = f"results_{prefix}"
-        subdirs = ["MSA", "MHC_Binding"]
+        subdirs = ["MSA", "MHC_Binding", "Seq_Preprocessing"]
         for subdir in subdirs:
             if not Path(f"{value}/{subdir}").exists():
                 Path(f"{value}/{subdir}").mkdir(parents=True, exist_ok=True)
