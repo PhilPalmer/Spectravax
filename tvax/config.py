@@ -50,10 +50,10 @@ class Weights(BaseModel):
     Config Object for Weights to Score Epitopes in the Graph.
     """
 
-    frequency: float = 1.0
-    population_coverage_mhc1: float = 1.0
-    population_coverage_mhc2: float = 1.0
-    clade: float = 1.0
+    frequency: float = 1
+    population_coverage_mhc1: float = 1
+    population_coverage_mhc2: float = 1
+    clade: float = 1
 
 
 class EpitopeGraphConfig(BaseModel):
@@ -69,6 +69,7 @@ class EpitopeGraphConfig(BaseModel):
     n_target: int = 1
     robust: bool = True
     scoring_method: Literal["weighted_average", "multiplicative"] = "multiplicative"
+    seq_identity: float = 0.95
     binding_criteria: Literal["transformed_affinity", "EL-score"] = "EL-score"
     affinity_cutoff_mhc1: float = 0.638  # 50nM after logistic transform
     affinity_cutoff_mhc2: float = 0.638  # 0.426 = 500nM after logistic transform
