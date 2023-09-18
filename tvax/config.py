@@ -50,10 +50,10 @@ class Weights(BaseModel):
     Config Object for Weights to Score Epitopes in the Graph.
     """
 
-    frequency: float = 1
-    population_coverage_mhc1: float = 1
-    population_coverage_mhc2: float = 1
-    clade: float = 1
+    frequency: float = 1.0
+    population_coverage_mhc1: float = 1.0
+    population_coverage_mhc2: float = 1.0
+    clade: float = 1.0
 
 
 class EpitopeGraphConfig(BaseModel):
