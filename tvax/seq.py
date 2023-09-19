@@ -42,7 +42,7 @@ def preprocess_seqs(
     seqs_dict = {
         seq_id: truncate_to_start_stop(seq) for seq_id, seq in seqs_dict.items()
     }
-    seqs_dict = {seq_id: seq for seq_id, seq in seqs_dict.items() if seq is not ""}
+    seqs_dict = {seq_id: seq for seq_id, seq in seqs_dict.items() if seq != ""}
     # print(f"Number of sequences after truncating: {len(seqs_dict)}")
 
     # Filter sequences
@@ -69,15 +69,19 @@ def preprocess_seqs(
     seqs_dict = load_fasta(cluster2_path, remove_chars=False)
     # print(f"Number of sequences after second clusterng: {len(seqs_dict)}")
     seqs_dict = {seq_id: str(Seq(seq).translate()) for seq_id, seq in seqs_dict.items()}
-    with open(fasta_path, "w") as f:
+    aa_path = f"{results_dir}/Seq_Preprocessing/{prefix}_aa_clstr2.fasta"
+    with open(aa_path, "w") as f:
         for seq_id, seq in seqs_dict.items():
             f.write(f">{seq_id}\n{seq}\n")
+
+    # Perform final clustering at the protein level
+    fasta_path = cluster_seqs(aa_path, fasta_path, seq_identity, n_threads, "cd-hit")
 
     # Align sequences with Clustal Omega
     align_path = f"{results_dir}/Seq_Preprocessing/{prefix}_align.fasta"
     align_path = align_seqs(fasta_path, align_path)
 
-    return Path(fasta_path)
+    return fasta_path
 
 
 def cluster_seqs(
