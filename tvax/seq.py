@@ -25,63 +25,106 @@ def preprocess_seqs(
     n_threads: int,
 ) -> Path:
     """
-    Preprocess sequences.
+    Preprocess sequences: Cleans, clusters, filters, translates, and aligns the sequences.
+    :fasta_nt_path: Path to the input nucleotide FASTA file.
+    :fasta_path: Path to the output FASTA file.
+    :prefix: Prefix for intermediate and output files.
+    :results_dir: Directory for saving results.
+    :seq_identity: Sequence identity threshold for clustering.
+    :n_threads: Number of threads for clustering.
+    :returns: Path to the preprocessed sequences.
     """
-    # Replace invalid characters in the FASTA file
-    subprocess.run(f"sed -i -E 's/(\|| )/_/g' {fasta_nt_path}", shell=True)
-    # n_seqs = int(subprocess.check_output(f"grep '>' {fasta_nt_path} | wc -l", shell=True))
-    # print(f"Number of initial sequences: {n_seqs}")
+
+    # Directory for sequence preprocessing files
+    seq_dir = results_dir / "Seq_Preprocessing"
+
+    # Clean the FASTA file
+    clean_fasta_file(fasta_nt_path)
 
     # Cluster sequences at NT level to reduce redundancy
-    cluster_path = f"{results_dir}/Seq_Preprocessing/{prefix}_clstr.fasta"
-    cluster_path = cluster_seqs(fasta_nt_path, cluster_path, seq_identity, n_threads)
+    clstr1_path = seq_dir / f"{prefix}_nt_clstr1.fasta"
+    clstr1_path = cluster_seqs(fasta_nt_path, clstr1_path, seq_identity, n_threads)
 
-    # Truncate to start and stop codons, then eliminate the stop codons
-    seqs_dict = load_fasta(cluster_path, remove_chars=False)
-    # print(f"Number of sequences after clustering: {len(seqs_dict)}")
-    seqs_dict = {
-        seq_id: truncate_to_start_stop(seq) for seq_id, seq in seqs_dict.items()
-    }
+    # Load, truncate, and filter sequences
+    seqs_dict_clstr1 = load_and_filter_seqs(clstr1_path)
+
+    # Write filtered sequences to file
+    clstr1_path = write_to_fasta(seqs_dict_clstr1, clstr1_path)
+
+    # Re-cluster sequences
+    clstr2_path = seq_dir / f"{prefix}_nt_clstr2.fasta"
+    clstr2_path = cluster_seqs(clstr1_path, clstr2_path, seq_identity, n_threads)
+
+    # Load sequences and translate to AA
+    seqs_dict_aa_clstr2 = load_and_filter_seqs(clstr2_path)
+    seqs_dict_aa_clstr2 = translate_seqs(seqs_dict_aa_clstr2)
+
+    # Write AA sequences to file
+    aa_clstr2_path = seq_dir / f"{prefix}_aa_clstr2.fasta"
+    aa_clstr2_path = write_to_fasta(seqs_dict_aa_clstr2, aa_clstr2_path)
+
+    # Perform final clustering at the protein level
+    aa_clstr3_path = seq_dir / f"{prefix}_aa_clstr3.fasta"
+    aa_clstr3_path = cluster_seqs(
+        aa_clstr2_path, aa_clstr3_path, seq_identity, n_threads, "cd-hit"
+    )
+
+    # Align sequences with Clustal Omega
+    fasta_path = align_seqs(aa_clstr3_path, fasta_path)
+
+    # Trim alignment
+    trimmed_dict = trim_alignment(fasta_path)
+    fasta_path = write_to_fasta(trimmed_dict, fasta_path)
+
+    return fasta_path
+
+
+def clean_fasta_file(fasta_nt_path: Path) -> None:
+    """
+    Clean the FASTA file by replacing invalid characters.
+    """
+    cmd = f"sed -i -E 's/(\|| )/_/g' {fasta_nt_path}"
+    subprocess.run(cmd, shell=True)
+
+
+def load_and_filter_seqs(fasta_path: Path) -> dict:
+    """
+    Load sequences, truncate to ORFs, and filter based on criteria.
+    """
+    # Load sequences
+    seqs_dict = load_fasta(fasta_path, remove_chars=False)
+
+    # Truncate to ORFs and eliminate the stop codons
+    seqs_dict = {seq_id: get_longest_orf(seq) for seq_id, seq in seqs_dict.items()}
     seqs_dict = {seq_id: seq for seq_id, seq in seqs_dict.items() if seq != ""}
-    # print(f"Number of sequences after truncating: {len(seqs_dict)}")
 
-    # Filter sequences
+    # Filter sequences based on length and ambiguous nucleotides
     seq_lens = [len(seq) for seq in seqs_dict.values()]
     median_seq_len = int(np.median(seq_lens))
     seqs_dict = {
         seq_id: seq
         for seq_id, seq in seqs_dict.items()
-        # Remove sequences that deviate from the median length by >10%
-        if abs(len(seq) - median_seq_len) / median_seq_len <= 0.1 and
-        # Remove sequences containing >3 successive ambiguous nucleotides
-        "NNNN" not in seq
+        if abs(len(seq) - median_seq_len) / median_seq_len <= 0.1 and "NNNN" not in seq
     }
-    # print(f"Number of sequences after filtering: {len(seqs_dict)}")
-    with open(cluster_path, "w") as f:
+
+    return seqs_dict
+
+
+def write_to_fasta(seqs_dict: dict, output_path: Path) -> Path:
+    """
+    Write sequences to a FASTA file.
+    """
+    with output_path.open("w") as f:
         for seq_id, seq in seqs_dict.items():
             f.write(f">{seq_id}\n{seq}\n")
+    return Path(output_path)
 
-    # Re-cluster sequences
-    cluster2_path = f"{results_dir}/Seq_Preprocessing/{prefix}_clstr2.fasta"
-    cluster2_path = cluster_seqs(cluster_path, cluster2_path, seq_identity, n_threads)
 
-    # Translate sequences to AA and save to file
-    seqs_dict = load_fasta(cluster2_path, remove_chars=False)
-    # print(f"Number of sequences after second clusterng: {len(seqs_dict)}")
-    seqs_dict = {seq_id: str(Seq(seq).translate()) for seq_id, seq in seqs_dict.items()}
-    aa_path = f"{results_dir}/Seq_Preprocessing/{prefix}_aa_clstr2.fasta"
-    with open(aa_path, "w") as f:
-        for seq_id, seq in seqs_dict.items():
-            f.write(f">{seq_id}\n{seq}\n")
-
-    # Perform final clustering at the protein level
-    fasta_path = cluster_seqs(aa_path, fasta_path, seq_identity, n_threads, "cd-hit")
-
-    # Align sequences with Clustal Omega
-    align_path = f"{results_dir}/Seq_Preprocessing/{prefix}_align.fasta"
-    align_path = align_seqs(fasta_path, align_path)
-
-    return fasta_path
+def translate_seqs(seqs_dict: dict) -> dict:
+    """
+    Translate nucleotide sequences to amino acid sequences.
+    """
+    return {seq_id: str(Seq(seq).translate()) for seq_id, seq in seqs_dict.items()}
 
 
 def cluster_seqs(
@@ -115,54 +158,76 @@ def align_seqs(
     return Path(output_file)
 
 
-def truncate_to_start_stop(
-    seq: str, start_codon: str = "ATG", stop_codons: list = ["TAA", "TAG", "TGA"]
-):
+def get_longest_orf(seq: str, table: int = 1):
     """
-    Truncate sequence to start and stop codons and remove the stop codon.
-    Only consider in-frame stop codons.
+    Get the longest ORF in a sequence.
     """
-    # Remove all gaps
-    seq = seq.replace("-", "")
+    seq = Seq(seq)
 
-    # Find the start codon
-    start_index = seq.find(start_codon)
-    if start_index == -1:
+    def find_orfs_with_trans(nuc, trans_table):
+        orfs = []
+        seq_len = len(nuc)
+        for frame in range(3):
+            trans = nuc[frame:].translate(trans_table)
+            trans_len = len(trans)
+            aa_start = 0
+            aa_end = 0
+            while aa_start < trans_len:
+                aa_end = trans.find("*", aa_start)
+                if aa_end == -1:
+                    aa_end = trans_len
+                start = frame + aa_start * 3
+                end = min(seq_len, frame + aa_end * 3 + 3)
+                orf_nucleotide = nuc[start:end]
+                orfs.append(orf_nucleotide)
+                aa_start = aa_end + 1
+        return orfs
+
+    orf_list = find_orfs_with_trans(seq, table)
+    if orf_list:
+        return str(max(orf_list, key=len))[:-3]
+
+    else:
         return ""
 
-    # Initialize stop_index to None (no valid stop codon found yet)
-    stop_index = None
 
-    # Check each potential stop codon
-    for stop_codon in stop_codons:
-        current_stop_index = (
-            start_index + 3
-        )  # Start checking 3 nucleotides after the start codon
+def trim_alignment(align_path: Path) -> dict:
+    """ "
+    Trim the alignment to the most common start and end columns.
+    """
+    align_dict = load_fasta(align_path, remove_chars=False)
+    # Convert dictionary values to a list of sequences
+    sequences = list(align_dict.values())
 
-        while (
-            current_stop_index < len(seq) - 2
-        ):  # Ensure there's room for a 3-nucleotide codon
-            current_stop_index = seq.find(stop_codon, current_stop_index)
+    # Find the total number of sequences
+    num_sequences = len(sequences)
 
-            # If no more occurrences of this stop codon, move to the next one
-            if current_stop_index == -1:
-                break
+    # Initialize start and end columns
+    start_column = None
+    end_column = None
 
-            # Check if this stop codon is in-frame
-            if (current_stop_index - start_index) % 3 == 0:
-                # If this is the first in-frame stop codon found, or it's closer than a previously found one
-                if stop_index is None or current_stop_index < stop_index:
-                    stop_index = current_stop_index
-                break
+    # Find the start column
+    for column in range(len(sequences[0])):
+        non_gap_count = sum([1 for seq in sequences if seq[column] != "-"])
+        if (
+            non_gap_count > num_sequences / 2
+        ):  # Checking if more than half of the sequences have a non-gap character
+            start_column = column
+            break
 
-            # Move past this occurrence of the stop codon to continue searching
-            current_stop_index += 3
+    # Find the end column
+    for column in range(len(sequences[0]) - 1, -1, -1):
+        non_gap_count = sum([1 for seq in sequences if seq[column] != "-"])
+        if non_gap_count > num_sequences / 2:
+            end_column = column
+            break
 
-    if stop_index is None:
-        return ""
+    align_dict = {
+        seq_id: seq[start_column : end_column + 1].replace("-", "")
+        for seq_id, seq in align_dict.items()
+    }
 
-    truncated_seq = seq[start_index:stop_index]
-    return truncated_seq
+    return align_dict
 
 
 def load_fasta(fasta_path: Path, remove_chars: bool = True) -> dict:
