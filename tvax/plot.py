@@ -19,6 +19,7 @@ from tvax.graph import load_fasta
 from tvax.pca_protein_rank import pca_protein_rank, plot_pca
 from tvax.score import load_haplotypes, load_overlap, optivax_robust
 from tvax.seq import msa, path_to_seq, kmerise_simple
+from typing import List, Optional
 from scipy import stats
 from scipy.interpolate import griddata
 from sklearn.metrics import roc_auc_score, roc_curve, brier_score_loss, log_loss
@@ -949,10 +950,11 @@ def plot_mhc_heatmap(
 
 def plot_population_coverage(
     vaccine_design: list = None,
-    n_targets: list = list(range(0, 11)),
+    n_targets: list = list(range(0, 81)),
     mhc_types: list = ["mhc1", "mhc2"],
     config: EpitopeGraphConfig = None,
     G: nx.Graph = None,
+    out_path: str = None,
 ):
     """
     Plot the population coverage of the vaccine designs.
@@ -999,6 +1001,12 @@ def plot_population_coverage(
         pop_cov_df["ancestry"], categories=ancestries, ordered=True
     )
 
+    # Plot population coverage histogram
+    transformed_pop_cov_df = transform_population_data(pop_cov_df)
+    plot_population_coverage_histogram(
+        transformed_pop_cov_df, mhc_types, out_path=out_path
+    )
+
     # Plot
     sns.set_style("whitegrid")
     sns.set_context("paper", font_scale=1.5)
@@ -1016,7 +1024,7 @@ def plot_population_coverage(
         )
         ax.set_xlabel("Minimum number of peptide-HLA hits cutoff", fontsize=18)
         mhc_class = "I" if mhc_type == "mhc1" else "II"
-        ax.set_ylabel(f"Population Coverage for MHC Class {mhc_class} (%)", fontsize=18)
+        ax.set_ylabel(f"Coverage for MHC Class {mhc_class} (%)", fontsize=18)
         ax.tick_params(axis="both", which="major", labelsize=14)
         ax.spines.right.set_visible(False)
         ax.spines.top.set_visible(False)
@@ -1029,6 +1037,101 @@ def plot_population_coverage(
         ax.legend(handles=handles, labels=labels, loc="lower left", fontsize=14)
         pop_cov_plots.append(fig)
     return pop_cov_plots, pop_cov_df
+
+
+def transform_population_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Transforms the population coverage data to represent the fraction
+    of the population with exactly n peptide-HLA hits.
+    """
+    df = df.copy()
+    df["n_target"] = df["n_target"].str.split("n ≥ ").str[1].astype(int)
+    transformed_data = []
+    grouped = df.groupby(["ancestry", "mhc_type"])
+    for (ancestry, mhc), group in grouped:
+        group = group.sort_values(by="n_target").reset_index(drop=True)
+        exact_pop_cov = [
+            group["pop_cov"][i] - group["pop_cov"][i + 1]
+            if i + 1 < len(group)
+            else group["pop_cov"][i]
+            for i in range(len(group))
+        ]
+        for n_target, pop_cov in zip(group["n_target"], exact_pop_cov):
+            transformed_data.append(
+                {
+                    "ancestry": ancestry,
+                    "mhc_type": mhc,
+                    "n_target": n_target,
+                    "pop_cov": max(0, pop_cov),
+                }
+            )
+
+    return pd.DataFrame(transformed_data)
+
+
+def plot_population_coverage_histogram(
+    df: pd.DataFrame,
+    mhc_types: Optional[List[str]] = ["mhc1", "mhc2"],
+    ancestries_order: list = ["Asian", "Black", "White", "Average"],
+    palette: str = "Set2",
+    out_path: str = None,
+) -> None:
+    """
+    Plot the population coverage histogram based on the provided dataframe.
+    """
+
+    f, axs = plt.subplots(
+        len(mhc_types), len(df["ancestry"].unique()), figsize=(20, 10)
+    )
+
+    ancestry_colours = {
+        "Asian": sns.color_palette(palette)[0],
+        "Black": sns.color_palette(palette)[1],
+        "White": sns.color_palette(palette)[2],
+        "Average": sns.color_palette(palette)[3],
+    }
+
+    for i, mhc_type in enumerate(mhc_types):
+        for j, ancestry in enumerate(ancestries_order):
+            ancestry_data = df[
+                (df["ancestry"] == ancestry) & (df["mhc_type"] == mhc_type)
+            ]
+            count = ancestry_data["n_target"].values
+            freq = ancestry_data["pop_cov"].values
+            axs[i, j].bar(
+                count, freq, width=1, color=ancestry_colours[ancestry]
+            )  # "lightblue"
+            mhc_type_str = "MHC-I" if mhc_type == "mhc1" else "MHC-II"
+            axs[i, j].set_title(f"{mhc_type_str} {ancestry}", fontsize=13)
+            axs[i, j].set_xlabel("# displayed peptides", fontsize=13)
+            axs[i, j].set_ylabel(f"Coverage (%)", fontsize=13)
+            axs[i, j].yaxis.set_major_formatter(
+                plt.FuncFormatter(lambda x, _: "{:.0f}".format(x))
+            )
+            exp = (count * freq / 100).sum()
+            axs[i, j].axvline(
+                x=exp,
+                c="lightcoral",
+                ls="--",
+                lw=2,
+                label="$\mathbb{E}(\# DPs)$" + f"={exp:.0f}",
+            )
+            axs[i, j].legend(fontsize=12)
+
+    # Increase space between subplots
+    f.subplots_adjust(hspace=0.3)
+
+    # Annotate plots with letters
+    for subplot_idx, subplot_ax in enumerate(axs.ravel()):
+        subplot_ax.text(
+            -0.05,
+            1.03,
+            string.ascii_uppercase[subplot_idx],
+            transform=subplot_ax.transAxes,
+            size=24,
+            weight="bold",
+        )
+    plt.savefig(out_path, bbox_inches="tight")
 
 
 #######################

@@ -64,6 +64,10 @@ def antigens_dict():
     Return a dictionary of antigen names and paths to fasta files.
     """
     return {
+        "Influenza A M1": {
+            "fasta_path": "data/results_flua_m1/Seq_Preprocessing/flua_m1.fasta",
+            "results_dir": "data/results_flua_m1/",
+        },
         "Betacoronavirus N": {
             "fasta_path": "data/input/sar_mer_nuc_protein.fasta",
             "results_dir": "data/results",
@@ -112,6 +116,7 @@ def run_analyses(
         config.run_kmer_graphs
         or config.run_scores_distribution
         or config.run_compare_antigens
+        or config.run_population_coverage
     ):
         if config.antigen_graphs_pkl.exists():
             print("Loading antigen graphs from pickle file")
@@ -173,6 +178,23 @@ def run_analyses(
             path_cov_df,
             pop_cov_df,
             config.compare_antigens_fig,
+        )
+    if config.run_population_coverage:
+        print("Running population coverage...")
+        # TODO: Save all vaccine designs rather than computing one here
+        antigen_dict = antigens_dict[config.antigen]
+        params["fasta_path"] = antigen_dict["fasta_path"]
+        params["results_dir"] = antigen_dict["results_dir"]
+        kmergraph_config = EpitopeGraphConfig(**params)
+        G = antigen_graphs[config.antigen]
+        Q = design_vaccines(G, kmergraph_config)
+        vaccine_kmers = seq_to_kmers(path_to_seq(Q[0]), kmergraph_config.k, G)
+
+        plot_population_coverage(
+            vaccine_kmers,
+            config=kmergraph_config,
+            G=G,
+            out_path=config.population_coverage_fig,
         )
 
 
@@ -1441,20 +1463,22 @@ if __name__ == "__main__":
         "equalise_clades": True,
         "n_clusters": None,
         "weights": {
-            "frequency": 1,
-            "population_coverage_mhc1": 1,
-            "population_coverage_mhc2": 1,
+            "frequency": 1.0,
+            "population_coverage_mhc1": 1.0,
+            "population_coverage_mhc2": 1.0,
+            "clade": 1.0,
         },
-        "affinity_predictors": ["mhcflurry", "netmhcpan"],
+        "affinity_predictors": ["netmhcpan"],
     }
     analyses_params = {
         "results_dir": "data/outputs",
         "run_kmer_filtering": False,
         "run_scores_distribution": False,
         "run_binding_criteria": False,
-        "run_netmhc_calibration": True,
+        "run_netmhc_calibration": False,
         "run_kmer_graphs": False,
         "run_compare_antigens": False,
+        "run_population_coverage": True,
     }
     config = AnalysesConfig(**analyses_params)
     run_analyses(config, kmer_graph_params)

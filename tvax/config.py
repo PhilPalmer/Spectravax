@@ -119,7 +119,6 @@ class EpitopeGraphConfig(BaseModel):
     @validator("fasta_path", pre=True, always=True)
     def validate_fasta_path(cls, value, values):
         fasta_nt_path = values.get("fasta_nt_path")
-        print(f"Fasta NT path: {fasta_nt_path}")
         if value is None and fasta_nt_path is None:
             raise ValueError("Please provide a FASTA file path.")
         if value is not None and not Path(value).exists():
@@ -180,7 +179,7 @@ class EpitopeGraphConfig(BaseModel):
             elif "mhcflurry" in affinity_predictors:
                 predictors = "mhcflurry"
             elif "netmhcpan" in affinity_predictors:
-                predictors = "netmhcpan"
+                predictors = "netmhc"
             immune_scores_path = (
                 f"{results_dir}/MHC_Binding/{prefix}_immune_scores_{predictors}.pkl"
             )
@@ -266,6 +265,11 @@ class AnalysesConfig(BaseModel):
     run_compare_antigens: bool = True
     compare_antigens_csv: Path = None
     compare_antigens_fig: Path = None
+
+    antigen: str = "Betacoronavirus N"
+    # Population coverage
+    run_population_coverage: bool = True
+    population_coverage_fig: Path = None
 
     @validator("results_dir", pre=True, always=True)
     def validate_results_dir(cls, value, values):
@@ -392,4 +396,13 @@ class AnalysesConfig(BaseModel):
             results_dir = values.get("results_dir")
             compare_antigens_fig = f"{results_dir}/figures/compare_antigens.svg"
             return Path(compare_antigens_fig)
+        return Path(value)
+
+    @validator("population_coverage_fig", pre=True, always=True)
+    def validate_population_coverage_fig(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            antigen = values.get("antigen").replace(" ", "_")
+            population_coverage_fig = f"{results_dir}/figures/{antigen}_coverage.svg"
+            return Path(population_coverage_fig)
         return Path(value)
