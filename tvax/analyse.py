@@ -37,6 +37,9 @@ from tvax.score import (
     remove_host_kmers,
     remove_kmers,
     transform_affinity,
+    load_haplotypes,
+    load_overlap,
+    optivax_robust,
 )
 from tvax.seq import (
     assign_clades,
@@ -188,13 +191,14 @@ def run_analyses(
         kmergraph_config = EpitopeGraphConfig(**params)
         G = antigen_graphs[config.antigen]
         Q = design_vaccines(G, kmergraph_config)
-        vaccine_kmers = seq_to_kmers(path_to_seq(Q[0]), kmergraph_config.k, G)
 
-        plot_population_coverage(
-            vaccine_kmers,
+        generate_and_plot_population_coverage(
+            csv_path=config.population_coverage_csv,
+            svg_path=config.population_coverage_fig,
+            vaccine_designs=Q,
             config=kmergraph_config,
-            G=G,
-            out_path=config.population_coverage_fig,
+            epitope_graph=G,
+            n_targets=list(range(0, 81)),
         )
 
 
@@ -523,6 +527,139 @@ def compute_n_filtered_kmers(
     n_filtered_kmers_df = pd.DataFrame(n_filtered_kmers)
 
     return n_filtered_kmers_df
+
+
+#########################################################
+# Evaluate the (population) coverage for a single antigen
+#########################################################
+
+
+def generate_and_plot_population_coverage(
+    csv_path: str,
+    svg_path: str,
+    vaccine_designs: list,
+    config: object,
+    epitope_graph: object,
+    n_targets: list,
+) -> None:
+    vaccine_kmers = seq_to_kmers(
+        path_to_seq(vaccine_designs[0]), config.k, epitope_graph
+    )
+    cov_df = load_or_compute_population_coverage(
+        csv_path, vaccine_kmers, config, epitope_graph
+    )
+
+    host_cov_df = cov_df[cov_df["cov_type"] == "host"]
+    cov_df = cov_df[cov_df["cov_type"] == "host+pathogen"]
+
+    trans_host_cov_df = transform_population_data(host_cov_df)
+    trans_cov_df = transform_population_data(cov_df)
+
+    plot_population_coverage(trans_host_cov_df, trans_cov_df, cov_df, svg_path)
+
+
+def load_or_compute_population_coverage(
+    csv_path: str, vaccine_kmers: list, config: object, epitope_graph: object
+) -> pd.DataFrame:
+    if not os.path.exists(csv_path):
+        print(f"Computing population coverage for {config.prefix}")
+        host_cov_df = generate_population_coverage_data(vaccine_kmers, config=config)
+        cov_df = generate_population_coverage_data(
+            vaccine_kmers, config=config, G=epitope_graph
+        )
+        host_cov_df["cov_type"] = "host"
+        cov_df["cov_type"] = "host+pathogen"
+        cov_df = pd.concat([host_cov_df, cov_df])
+        host_cov_df.to_csv(csv_path, index=False)
+    else:
+        print(f"Loading population coverage for {config.prefix} from {csv_path}")
+        cov_df = pd.read_csv(csv_path)
+    return cov_df
+
+
+def generate_population_coverage_data(
+    vaccine_design: list = None,
+    n_targets: list = list(range(0, 81)),
+    mhc_types: list = ["mhc1", "mhc2"],
+    ancestries: list = ["Asian", "Black", "White", "Average"],
+    config: EpitopeGraphConfig = None,
+    G: nx.Graph = None,
+) -> pd.DataFrame:
+    """
+    Compute population coverage for a given vaccine design.
+    """
+    peptides = vaccine_design
+    pop_cov_dict = {"ancestry": [], "mhc_type": [], "n_target": [], "pop_cov": []}
+    kmers_dict = None if G is None else dict(G.nodes(data=True))
+
+    # Preprocessing
+    for mhc_type in mhc_types:
+        hap_freq_path = (
+            config.hap_freq_mhc1_path
+            if mhc_type == "mhc1"
+            else config.hap_freq_mhc2_path
+        )
+        hap_freq, average_frequency = load_haplotypes(hap_freq_path)
+        if "Asians" in hap_freq.index:
+            hap_freq.index = hap_freq.index.str.replace("Asians", "Asian")
+
+        for anc in ancestries:
+            if anc == "Average":
+                anc_freq = average_frequency
+            else:
+                anc_freq = hap_freq.loc[anc].copy()
+            overlap_haplotypes = load_overlap(peptides, anc_freq, config, mhc_type)
+            for n_target in n_targets:
+                pop_cov = optivax_robust(
+                    overlap_haplotypes, anc_freq, n_target, peptides, kmers_dict
+                )
+                pop_cov_dict["ancestry"].append(anc)
+                pop_cov_dict["mhc_type"].append(mhc_type)
+                pop_cov_dict["n_target"].append(n_target)
+                pop_cov_dict["pop_cov"].append(pop_cov)
+
+    pop_cov_df = pd.DataFrame(pop_cov_dict)
+    pop_cov_df["pop_cov"] = pop_cov_df["pop_cov"] * 100
+
+    # Sort by ancestry but put average last
+    ancestries = sorted(ancestries)
+    ancestries.remove("Average")
+    ancestries.append("Average")
+    pop_cov_df["ancestry"] = pd.Categorical(
+        pop_cov_df["ancestry"], categories=ancestries, ordered=True
+    )
+
+    return pop_cov_df
+
+
+def transform_population_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Transforms the population coverage data to represent the fraction
+    of the population with exactly n peptide-HLA hits.
+    """
+    df = df.copy()
+    df["n_target"] = df["n_target"].astype(int)
+    transformed_data = []
+    grouped = df.groupby(["ancestry", "mhc_type"])
+    for (ancestry, mhc), group in grouped:
+        group = group.sort_values(by="n_target").reset_index(drop=True)
+        exact_pop_cov = [
+            group["pop_cov"][i] - group["pop_cov"][i + 1]
+            if i + 1 < len(group)
+            else group["pop_cov"][i]
+            for i in range(len(group))
+        ]
+        for n_target, pop_cov in zip(group["n_target"], exact_pop_cov):
+            transformed_data.append(
+                {
+                    "ancestry": ancestry,
+                    "mhc_type": mhc,
+                    "n_target": n_target,
+                    "pop_cov": max(0, pop_cov),
+                }
+            )
+
+    return pd.DataFrame(transformed_data)
 
 
 ###############################################################

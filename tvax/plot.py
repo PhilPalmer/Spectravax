@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 
 import igviz as ig
+import matplotlib.axes as axes
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 import networkx as nx
 import numpy as np
 import pandas as pd
@@ -17,7 +19,6 @@ from matplotlib import cm
 from tvax.config import EpitopeGraphConfig, Weights
 from tvax.graph import load_fasta
 from tvax.pca_protein_rank import pca_protein_rank, plot_pca
-from tvax.score import load_haplotypes, load_overlap, optivax_robust
 from tvax.seq import msa, path_to_seq, kmerise_simple
 from typing import List, Optional
 from scipy import stats
@@ -949,124 +950,177 @@ def plot_mhc_heatmap(
 
 
 def plot_population_coverage(
-    vaccine_design: list = None,
-    n_targets: list = list(range(0, 81)),
-    mhc_types: list = ["mhc1", "mhc2"],
-    config: EpitopeGraphConfig = None,
-    G: nx.Graph = None,
-    out_path: str = None,
+    trans_host_cov_df: pd.DataFrame,
+    trans_cov_df: pd.DataFrame,
+    cov_df: pd.DataFrame,
+    svg_path: str,
+) -> None:
+    fig = plt.figure(figsize=(20, 20))
+    gs = GridSpec(nrows=5, ncols=4, figure=fig)
+
+    ax1 = np.array([fig.add_subplot(gs[1, 0:2]), fig.add_subplot(gs[1, 2:4])])
+    ax2 = np.array(
+        [
+            [
+                fig.add_subplot(gs[2, 0]),
+                fig.add_subplot(gs[2, 1]),
+                fig.add_subplot(gs[2, 2]),
+                fig.add_subplot(gs[2, 3]),
+            ],
+            [
+                fig.add_subplot(gs[3, 0]),
+                fig.add_subplot(gs[3, 1]),
+                fig.add_subplot(gs[3, 2]),
+                fig.add_subplot(gs[3, 3]),
+            ],
+        ]
+    )
+    ax3 = fig.add_subplot(gs[4, 0:2])
+    ax4 = fig.add_subplot(gs[4, 2:4])
+
+    plot_dual_population_coverage_histogram(trans_host_cov_df, trans_cov_df, axs=ax1)
+    plot_population_coverage_histogram(trans_cov_df, axs=ax2)
+    plot_population_coverage_barplot(cov_df, "mhc1", ax=ax3)
+    plot_population_coverage_barplot(cov_df, "mhc2", ax=ax4)
+
+    fig.subplots_adjust(hspace=0.5, wspace=0.2)
+
+    all_axes = list(ax1) + list(ax2.ravel()) + [ax3, ax4]
+    for subplot_idx, subplot_ax in enumerate(all_axes):
+        subplot_ax.text(
+            -0.05,
+            1.05,
+            string.ascii_uppercase[subplot_idx],
+            transform=subplot_ax.transAxes,
+            size=24,
+            weight="bold",
+        )
+
+    fig.savefig(svg_path, bbox_inches="tight")
+
+
+def plot_population_coverage_barplot(
+    data: pd.DataFrame,
+    mhc_type: str,
+    ancestries_order: List[str] = ["Asian", "Black", "White", "Average"],
+    max_n_target: int = 15,
+    ax: axes.Axes = None,
+) -> None:
+    """
+    Generate a barplot for the population coverage data.
+    """
+    # Filter data to only include the desired MHC type and only n_target <= max_n_target
+    data = data[data["mhc_type"] == mhc_type]
+    data = data[data["n_target"] <= max_n_target]
+
+    sns.barplot(
+        x="n_target",
+        y="pop_cov",
+        hue="ancestry",
+        data=data,
+        ax=ax,
+        palette="Set2",
+    )
+    ax.set_xlabel("Minimum # of displayed peptides cutoff", fontsize=14)
+    mhc_str = "MHC-I" if mhc_type == "mhc1" else "MHC-II"
+    ax.set_title(mhc_str, fontsize=14)
+    ax.set_ylabel(f"Coverage (%)", fontsize=14)
+    ax.tick_params(axis="both", which="major", labelsize=14)
+    ax.spines.right.set_visible(False)
+    ax.spines.top.set_visible(False)
+    ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ax.legend(loc="upper left", fontsize=14)
+    ax.set_ylim([0, 100])
+    # Move legend to right side of plot
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles=handles, labels=labels, loc="lower left", fontsize=14)
+
+
+def plot_single_ancestry_histogram(
+    ax, data, ancestry, mhc_type, color, label_suffix="", dual_histogram=False
 ):
     """
-    Plot the population coverage of the vaccine designs.
+    Plots a single histogram for a given MHC type and ancestry.
     """
-    peptides = vaccine_design
-    pop_cov_dict = {"ancestry": [], "mhc_type": [], "n_target": [], "pop_cov": []}
-    kmers_dict = None if G is None else dict(G.nodes(data=True))
+    count = data["n_target"].values
+    freq = data["pop_cov"].values
+    if dual_histogram:
+        if label_suffix:
+            label = "Host coverage"
+        else:
+            label = "Coverage"
+    else:
+        label = None
+    ax.bar(count, freq, width=1, color=color, label=label)
+    mhc_type_str = "MHC-I" if mhc_type == "mhc1" else "MHC-II"
+    ax.set_title(f"{mhc_type_str} {ancestry}", fontsize=14)
+    ax.set_xlabel("# displayed peptides", fontsize=14)
+    ax.set_ylabel(f"Coverage (%)", fontsize=14)
+    if label_suffix == "" and dual_histogram:
+        ax.yaxis.set_visible(False)
 
-    # Preprocessing
-    for mhc_type in mhc_types:
-        hap_freq_path = (
-            config.hap_freq_mhc1_path
-            if mhc_type == "mhc1"
-            else config.hap_freq_mhc2_path
-        )
-        hap_freq, average_frequency = load_haplotypes(hap_freq_path)
-        if "Asians" in hap_freq.index:
-            hap_freq.index = hap_freq.index.str.replace("Asians", "Asian")
-        ancestries = hap_freq.index.tolist() + ["Average"]
-        for anc in ancestries:
-            if anc == "Average":
-                anc_freq = average_frequency
-            else:
-                anc_freq = hap_freq.loc[anc].copy()
-            overlap_haplotypes = load_overlap(peptides, anc_freq, config, mhc_type)
-            for n_target in n_targets:
-                pop_cov = optivax_robust(
-                    overlap_haplotypes, anc_freq, n_target, peptides, kmers_dict
-                )
-                pop_cov_dict["ancestry"].append(anc)
-                pop_cov_dict["mhc_type"].append(mhc_type)
-                pop_cov_dict["n_target"].append(n_target)
-                pop_cov_dict["pop_cov"].append(pop_cov)
-
-    pop_cov_df = pd.DataFrame(pop_cov_dict)
-    pop_cov_df["pop_cov"] = pop_cov_df["pop_cov"] * 100
-    pop_cov_df["n_target"] = "n ≥ " + pop_cov_df["n_target"].astype(str)
-
-    # Sort by ancestry but put average last
-    ancestries = sorted(ancestries)
-    ancestries.remove("Average")
-    ancestries.append("Average")
-    pop_cov_df["ancestry"] = pd.Categorical(
-        pop_cov_df["ancestry"], categories=ancestries, ordered=True
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: "{:.0f}".format(x)))
+    exp = (count * freq / 100).sum()
+    ax.axvline(
+        x=exp, c=color, ls="--", lw=2, label="$\mathbb{E}(\# DPs)$" + f"={exp:.0f}"
     )
 
-    # Plot population coverage histogram
-    transformed_pop_cov_df = transform_population_data(pop_cov_df)
-    plot_population_coverage_histogram(
-        transformed_pop_cov_df, mhc_types, out_path=out_path
-    )
+    if dual_histogram:
+        if label_suffix == "":
+            ax.legend(fontsize=12, loc="upper right")
+        else:
+            ax.legend(fontsize=12, bbox_to_anchor=(1, 0.7), loc="upper right")
+    else:
+        ax.legend(fontsize=12)
 
-    # Plot
-    sns.set_style("whitegrid")
-    sns.set_context("paper", font_scale=1.5)
-    pop_cov_plots = []
-
-    for mhc_type in mhc_types:
-        fig, ax = plt.subplots(1, figsize=(14, 6))
-        sns.barplot(
-            x="n_target",
-            y="pop_cov",
-            hue="ancestry",
-            data=pop_cov_df[pop_cov_df["mhc_type"] == mhc_type],
-            ax=ax,
-            palette="Set2",
-        )
-        ax.set_xlabel("Minimum number of peptide-HLA hits cutoff", fontsize=18)
-        mhc_class = "I" if mhc_type == "mhc1" else "II"
-        ax.set_ylabel(f"Coverage for MHC Class {mhc_class} (%)", fontsize=18)
-        ax.tick_params(axis="both", which="major", labelsize=14)
-        ax.spines.right.set_visible(False)
-        ax.spines.top.set_visible(False)
-        ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-        ax.legend(loc="upper left", fontsize=14)
-        # ax.set_xlim([1, 8])
-        ax.set_ylim([0, 100])
-        # Move legend to right side of plot
-        handles, labels = ax.get_legend_handles_labels()
-        ax.legend(handles=handles, labels=labels, loc="lower left", fontsize=14)
-        pop_cov_plots.append(fig)
-    return pop_cov_plots, pop_cov_df
+    return ax
 
 
-def transform_population_data(df: pd.DataFrame) -> pd.DataFrame:
+def plot_dual_population_coverage_histogram(
+    df1: pd.DataFrame,
+    df2: pd.DataFrame,
+    mhc_types: Optional[List[str]] = ["mhc1", "mhc2"],
+    ancestry: str = "Average",
+    palette: str = "Set2",
+    axs: np.ndarray = None,
+) -> None:
     """
-    Transforms the population coverage data to represent the fraction
-    of the population with exactly n peptide-HLA hits.
+    Plot two population coverage histograms based on the provided dataframes.
     """
-    df = df.copy()
-    df["n_target"] = df["n_target"].str.split("n ≥ ").str[1].astype(int)
-    transformed_data = []
-    grouped = df.groupby(["ancestry", "mhc_type"])
-    for (ancestry, mhc), group in grouped:
-        group = group.sort_values(by="n_target").reset_index(drop=True)
-        exact_pop_cov = [
-            group["pop_cov"][i] - group["pop_cov"][i + 1]
-            if i + 1 < len(group)
-            else group["pop_cov"][i]
-            for i in range(len(group))
+
+    ancestry_colours = {
+        "Asian": sns.color_palette(palette)[0],
+        "Black": sns.color_palette(palette)[1],
+        "White": sns.color_palette(palette)[2],
+        "Average": sns.color_palette(palette)[3],
+    }
+
+    for i, mhc_type in enumerate(mhc_types):
+        ancestry_data_1 = df1[
+            (df1["ancestry"] == ancestry) & (df1["mhc_type"] == mhc_type)
         ]
-        for n_target, pop_cov in zip(group["n_target"], exact_pop_cov):
-            transformed_data.append(
-                {
-                    "ancestry": ancestry,
-                    "mhc_type": mhc,
-                    "n_target": n_target,
-                    "pop_cov": max(0, pop_cov),
-                }
-            )
+        ancestry_data_2 = df2[
+            (df2["ancestry"] == ancestry) & (df2["mhc_type"] == mhc_type)
+        ]
 
-    return pd.DataFrame(transformed_data)
+        plot_single_ancestry_histogram(
+            axs[i],
+            ancestry_data_1,
+            ancestry,
+            mhc_type,
+            sns.color_palette(palette)[6],
+            label_suffix="(Host)",
+            dual_histogram=True,
+        )
+        ax2 = axs[i].twinx()
+        plot_single_ancestry_histogram(
+            ax2,
+            ancestry_data_2,
+            ancestry,
+            mhc_type,
+            ancestry_colours[ancestry],
+            dual_histogram=True,
+        )
 
 
 def plot_population_coverage_histogram(
@@ -1074,15 +1128,11 @@ def plot_population_coverage_histogram(
     mhc_types: Optional[List[str]] = ["mhc1", "mhc2"],
     ancestries_order: list = ["Asian", "Black", "White", "Average"],
     palette: str = "Set2",
-    out_path: str = None,
+    axs: np.ndarray = None,
 ) -> None:
     """
     Plot the population coverage histogram based on the provided dataframe.
     """
-
-    f, axs = plt.subplots(
-        len(mhc_types), len(df["ancestry"].unique()), figsize=(20, 10)
-    )
 
     ancestry_colours = {
         "Asian": sns.color_palette(palette)[0],
@@ -1096,42 +1146,9 @@ def plot_population_coverage_histogram(
             ancestry_data = df[
                 (df["ancestry"] == ancestry) & (df["mhc_type"] == mhc_type)
             ]
-            count = ancestry_data["n_target"].values
-            freq = ancestry_data["pop_cov"].values
-            axs[i, j].bar(
-                count, freq, width=1, color=ancestry_colours[ancestry]
-            )  # "lightblue"
-            mhc_type_str = "MHC-I" if mhc_type == "mhc1" else "MHC-II"
-            axs[i, j].set_title(f"{mhc_type_str} {ancestry}", fontsize=13)
-            axs[i, j].set_xlabel("# displayed peptides", fontsize=13)
-            axs[i, j].set_ylabel(f"Coverage (%)", fontsize=13)
-            axs[i, j].yaxis.set_major_formatter(
-                plt.FuncFormatter(lambda x, _: "{:.0f}".format(x))
+            plot_single_ancestry_histogram(
+                axs[i, j], ancestry_data, ancestry, mhc_type, ancestry_colours[ancestry]
             )
-            exp = (count * freq / 100).sum()
-            axs[i, j].axvline(
-                x=exp,
-                c="lightcoral",
-                ls="--",
-                lw=2,
-                label="$\mathbb{E}(\# DPs)$" + f"={exp:.0f}",
-            )
-            axs[i, j].legend(fontsize=12)
-
-    # Increase space between subplots
-    f.subplots_adjust(hspace=0.3)
-
-    # Annotate plots with letters
-    for subplot_idx, subplot_ax in enumerate(axs.ravel()):
-        subplot_ax.text(
-            -0.05,
-            1.03,
-            string.ascii_uppercase[subplot_idx],
-            transform=subplot_ax.transAxes,
-            size=24,
-            weight="bold",
-        )
-    plt.savefig(out_path, bbox_inches="tight")
 
 
 #######################

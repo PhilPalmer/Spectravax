@@ -269,6 +269,7 @@ class AnalysesConfig(BaseModel):
     antigen: str = "Betacoronavirus N"
     # Population coverage
     run_population_coverage: bool = True
+    population_coverage_csv: Path = None
     population_coverage_fig: Path = None
 
     @validator("results_dir", pre=True, always=True)
@@ -398,11 +399,24 @@ class AnalysesConfig(BaseModel):
             return Path(compare_antigens_fig)
         return Path(value)
 
+    @validator("population_coverage_csv", pre=True, always=True)
+    def validate_population_coverage_csv(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            antigen = values.get("antigen").replace(" ", "_")
+            population_coverage_csv = (
+                f"{results_dir}/data/{antigen}_population_coverage.csv"
+            )
+            return Path(population_coverage_csv)
+        return Path(value)
+
     @validator("population_coverage_fig", pre=True, always=True)
     def validate_population_coverage_fig(cls, value, values):
         if value is None:
             results_dir = values.get("results_dir")
             antigen = values.get("antigen").replace(" ", "_")
-            population_coverage_fig = f"{results_dir}/figures/{antigen}_coverage.svg"
+            population_coverage_fig = (
+                f"{results_dir}/figures/{antigen}_population_coverage.svg"
+            )
             return Path(population_coverage_fig)
         return Path(value)
