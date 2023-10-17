@@ -23,6 +23,7 @@ from tvax.seq import msa, path_to_seq, kmerise_simple
 from typing import List, Optional
 from scipy import stats
 from scipy.interpolate import griddata
+from scipy.stats import gaussian_kde as kde
 from sklearn.metrics import roc_auc_score, roc_curve, brier_score_loss, log_loss
 
 
@@ -752,6 +753,225 @@ def plot_vaccine_design_pca(
 ###################
 # Pathogen coverage
 ###################
+
+
+def plot_pca_on_ax(df, ax):
+    plot_pca(df, plot_type="2D", ax=ax)
+
+
+def plot_boxplot_on_ax(df, ax, y="E(#DPs)_vax_cov_mhc1+2"):
+    """
+    Plot the coverage for each pathogen in the target sequences as a boxplot.
+    """
+    # Remove the vaccine design
+    df = df[df["cluster"] != "vaccine design"]
+    # Sort by the cluster
+    df = df.sort_values(by="cluster")
+    color_dict = dict(zip(df["cluster"].unique(), df["colour"].unique()))
+    # Plot the boxes and the points
+    sns.boxplot(
+        x="cluster",
+        y=y,
+        data=df,
+        palette=df["colour"].unique(),
+        ax=ax,
+    )
+    sns.stripplot(
+        x="cluster",
+        y=y,
+        data=df,
+        jitter=True,
+        dodge=True,
+        size=6,
+        linewidth=1,
+        # alpha=0.5,
+        hue="cluster",
+        # color="black",
+        palette=color_dict,
+        edgecolor="white",
+        ax=ax,
+    )
+    # Set the plot title and labels
+    ax.set_xlabel("Cluster", fontsize=14)
+    ax.set_ylabel("E(#DPs)", fontsize=14)
+    ax.set_ylim(0)
+    ax.legend().set_visible(False)
+
+
+def plot_2d_kde_on_ax(
+    x, y, z, citvax_i, ax, vmin=0, vmax=None, levels=15, fill=False, show_clb=False
+):
+    if vmax == None:
+        vmax = z.max()
+    citvax_x = x.values[citvax_i]
+    citvax_y = y.values[citvax_i]
+    x = x.drop(citvax_i)
+    y = y.drop(citvax_i)
+    z = z.drop(citvax_i)
+    xy = np.vstack([x, y])
+    z_kde = kde(xy, weights=z)
+    x_grid, y_grid = np.meshgrid(
+        np.linspace(x.min(), x.max(), 100), np.linspace(y.min(), y.max(), 100)
+    )
+    xy_grid = np.vstack([x_grid.ravel(), y_grid.ravel()])
+    z_grid_kde = z_kde(xy_grid).reshape(x_grid.shape)
+    z_max = z.max()
+    z_grid_kde = z_grid_kde * z_max / z_grid_kde.max()
+    c = ax.scatter(x, y, c=z, cmap="viridis", vmin=vmin, vmax=vmax, edgecolors="white")
+    if fill:
+        ax.contourf(
+            x_grid,
+            y_grid,
+            z_grid_kde,
+            levels=levels,
+            cmap="viridis",
+            vmin=vmin,
+            vmax=vmax,
+            zorder=0,
+        )
+    else:
+        ax.contour(
+            x_grid,
+            y_grid,
+            z_grid_kde,
+            levels=levels,
+            cmap="viridis",
+            vmin=vmin,
+            vmax=vmax,
+        )
+    ax.scatter(
+        citvax_x,
+        citvax_y,
+        cmap="viridis",
+        vmin=vmin,
+        vmax=vmax,
+        s=100,
+        marker="X",
+        edgecolors="white",
+    )
+    ax.set_xlabel("PC 1")
+    ax.set_ylabel("PC 2")
+    if show_clb:
+        fig = ax.figure
+        clb = fig.colorbar(c, ax=ax)
+        clb.ax.set_title("E(#DPs)", fontsize=14)
+
+
+def plot_3d_kde_on_ax(x, y, z, citvax_i, ax, vmin=0, vmax=None, levels=15):
+    if vmax == None:
+        vmax = z.max()
+    citvax_x = x.values[citvax_i]
+    citvax_y = y.values[citvax_i]
+    citvax_z = z.values[citvax_i]
+    x = x.drop(citvax_i)
+    y = y.drop(citvax_i)
+    z = z.drop(citvax_i)
+    xy = np.vstack([x, y])
+    z_kde = kde(xy, weights=z)
+    x_grid, y_grid = np.meshgrid(
+        np.linspace(x.min(), x.max(), 100), np.linspace(y.min(), y.max(), 100)
+    )
+    xy_grid = np.vstack([x_grid.ravel(), y_grid.ravel()])
+    z_grid_kde = z_kde(xy_grid).reshape(x_grid.shape)
+    z_max = z.max()
+    z_grid_kde = z_grid_kde * z_max / z_grid_kde.max()
+    c = ax.scatter(x, y, z, c=z, cmap="viridis", vmin=vmin, vmax=vmax)
+    ax.scatter(
+        citvax_x,
+        citvax_y,
+        citvax_z,
+        cmap="viridis",
+        vmin=vmin,
+        vmax=vmax,
+        s=100,
+        marker="X",
+        zorder=10,
+    )
+    ax.contour(
+        x_grid, y_grid, z_grid_kde, levels=levels, cmap="viridis", vmin=vmin, vmax=vmax
+    )
+    ax.contour(
+        x_grid, y_grid, z_grid_kde, zdir="y", offset=np.max(y_grid), colors="grey"
+    )
+    ax.contour(
+        x_grid, y_grid, z_grid_kde, zdir="x", offset=np.min(x_grid), colors="grey"
+    )
+    ax.set_xlabel("PC 1")
+    ax.set_ylabel("PC 2")
+    ax.set_zlabel("E(#DPs)")
+    ax.view_init(elev=40, azim=-70)
+
+
+def plot_path_exp_dps(
+    comp_df: pd.DataFrame,
+    svg_path: str = None,
+    levels=15,
+):
+    """
+    Plot the expected number of displayed peptides for each target input sequence.
+    """
+    # Define variables such as x, y and z
+    x = comp_df["PCA1"]
+    y = comp_df["PCA2"]
+    z_vax_col = "E(#DPs)_vax_cov_mhc1+2"
+    z_wts_col = "E(#DPs)_wts_cov_mhc1+2"
+    comp_df[z_vax_col] = (
+        comp_df["E(#DPs)_vax_cov_mhc1"] + comp_df["E(#DPs)_vax_cov_mhc2"]
+    )
+    comp_df[z_wts_col] = (
+        comp_df["E(#DPs)_wts_cov_mhc1"] + comp_df["E(#DPs)_wts_cov_mhc2"]
+    )
+    z_vax = comp_df[z_vax_col]
+    z_wts = comp_df[z_wts_col]
+    vmax = max(z_vax.max(), z_wts.max())
+    vmin = 0
+    citvax_i = comp_df[comp_df["Sequence_id"] == "vaccine_design"].index[0]
+
+    # Define the figure
+    sns.set(style="whitegrid", font_scale=1.3)
+    fig = plt.figure(figsize=(20, 10))
+    gs = GridSpec(2, 8)
+
+    # Add axes and plots to the figure
+    ax1 = fig.add_subplot(gs[0, 0:3])
+    plot_pca_on_ax(comp_df, ax1)
+    ax2 = fig.add_subplot(gs[0, 4:8])
+    plot_boxplot_on_ax(comp_df, ax2)
+    ax3 = fig.add_subplot(gs[1, 0:4])
+    plot_2d_kde_on_ax(
+        x,
+        y,
+        z_vax,
+        citvax_i,
+        ax3,
+        fill=True,
+        vmax=vmax,
+        vmin=vmin,
+        levels=levels,
+        show_clb=True,
+    )
+    ax4 = fig.add_subplot(gs[1, 4:6])
+    plot_2d_kde_on_ax(x, y, z_wts, citvax_i, ax4, vmax=vmax, vmin=vmin, levels=levels)
+    ax5 = fig.add_subplot(gs[1, 6:8], projection="3d")
+    plot_3d_kde_on_ax(x, y, z_wts, citvax_i, ax5, vmax=vmax, vmin=vmin, levels=levels)
+
+    # Annotate the subplots with letters
+    for i, ax in enumerate([ax1, ax2, ax3, ax4, ax5]):
+        if ax != ax5:
+            # For 2D axes
+            ax.text(
+                -0.05,
+                1.1,
+                string.ascii_uppercase[i],
+                transform=ax.transAxes,
+                size=24,
+                weight="bold",
+            )
+
+    # Save the figure
+    fig.subplots_adjust(hspace=0.3, wspace=0.3)
+    if svg_path:
+        plt.savefig(svg_path)
 
 
 def plot_path_cov(path_cov_df: pd.DataFrame):

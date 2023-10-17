@@ -271,6 +271,10 @@ class AnalysesConfig(BaseModel):
     run_population_coverage: bool = True
     population_coverage_csv: Path = None
     population_coverage_fig: Path = None
+    # Pathogen coverage
+    run_pathogen_coverage: bool = True
+    pathogen_coverage_csv: Path = None
+    pathogen_coverage_fig: Path = None
 
     @validator("results_dir", pre=True, always=True)
     def validate_results_dir(cls, value, values):
@@ -419,4 +423,26 @@ class AnalysesConfig(BaseModel):
                 f"{results_dir}/figures/{antigen}_population_coverage.svg"
             )
             return Path(population_coverage_fig)
+        return Path(value)
+
+    @validator("pathogen_coverage_csv", pre=True, always=True)
+    def validate_pathogen_coverage_csv(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            antigen = values.get("antigen").replace(" ", "_")
+            pathogen_coverage_csv = (
+                f"{results_dir}/data/{antigen}_pathogen_coverage.csv"
+            )
+            return Path(pathogen_coverage_csv)
+        return Path(value)
+
+    @validator("pathogen_coverage_fig", pre=True, always=True)
+    def validate_pathogen_coverage_fig(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            antigen = values.get("antigen").replace(" ", "_")
+            pathogen_coverage_fig = (
+                f"{results_dir}/figures/{antigen}_pathogen_coverage.svg"
+            )
+            return Path(pathogen_coverage_fig)
         return Path(value)

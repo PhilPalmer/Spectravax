@@ -214,6 +214,7 @@ def plot_pca(
     group_by="cluster",
     colours=list(sns.color_palette("colorblind").as_hex()),
     figsize=(10, 6),
+    ax=None,
 ):
     """
     Plot PCA
@@ -224,7 +225,7 @@ def plot_pca(
     :param figsize: figure size
     :return: figure
     """
-    sns.set_style("whitegrid")
+    sns.set(style="whitegrid", font_scale=1.3)
     # Define clusters
     df.loc[df["Sequence_id"].str.contains("design"), "cluster"] = "vaccine design"
     df["cluster"] = df["cluster"].astype(int, errors="ignore")
@@ -257,10 +258,18 @@ def plot_pca(
         )
         fig.update_traces(marker=dict(line=dict(width=1, color="#808080")))
         return fig
-    fig = plt.figure(figsize=figsize)
+    if ax is None:
+        fig = plt.figure(figsize=figsize)
+    else:
+        fig = ax.get_figure()
     if plot_type == "3D":
         ax = fig.add_subplot(111, projection="3d")
-    for t1 in list(set(df[group_by])):
+    # Generate a list of sorted clusters - make sure the vaccine design is removed and added to the end
+    clusters = df[group_by].unique().tolist()
+    clusters.remove("vaccine design")
+    sorted_clusters = sorted(clusters)
+    sorted_clusters.append("vaccine design")
+    for t1 in sorted_clusters:
         group_df = df.loc[df[group_by] == t1]
         X = group_df["PCA1"]
         Y = group_df["PCA2"]
@@ -268,14 +277,17 @@ def plot_pca(
         C = group_df["colour"]
         S = group_df["size"]
         if plot_type == "2D":
-            plt.scatter(X, Y, c=C, edgecolor="black", s=S, label=t1)
+            if t1 == "vaccine design":
+                plt.scatter(X, Y, c=C, edgecolor="black", s=100, marker="X", label=t1)
+            else:
+                plt.scatter(X, Y, c=C, edgecolor="black", s=S, label=t1)
         elif plot_type == "3D":
             ax.scatter(X, Y, Z, c=C, edgecolor="black", s=S, label=t1)
-    plt.xlabel("PC 1", fontsize="12")
-    plt.ylabel("PC 2", rotation="90", fontsize="12")
-    plt.xticks(size="10")
-    plt.yticks(size="10")
-    plt.legend(loc="center left", bbox_to_anchor=(1.05, 0.5), fontsize=12)
+    plt.xlabel("PC 1")
+    plt.ylabel("PC 2", rotation="90")
+    plt.legend(
+        loc="center left", bbox_to_anchor=(1.05, 0.5), fontsize=12, title="Clusters"
+    )
     plt.tight_layout()
     if plot_type == "3D":
         ax.set_xlim(min(df["PCA1"]), max(df["PCA1"]))

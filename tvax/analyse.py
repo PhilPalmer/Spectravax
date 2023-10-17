@@ -25,11 +25,13 @@ from tvax.plot import (
     plot_antigens_comparison,
     plot_binding_criteria_eval,
     plot_calibration_curves,
+    plot_path_exp_dps,
     plot_kmer_filtering,
     plot_kmer_graphs,
     plot_population_coverage,
     plot_pop_cov_lineplot,
     plot_scores_distribution,
+    plot_vaccine_design_pca,
 )
 from tvax.score import (
     add_frequency_score,
@@ -72,8 +74,9 @@ def antigens_dict():
             "results_dir": "data/results_flua_m1/",
         },
         "Betacoronavirus N": {
-            "fasta_path": "data/input/sar_mer_nuc_protein.fasta",
+            "fasta_path": "data/input/sar_mer_nuc_protein_clustered_95.fasta",
             "results_dir": "data/results",
+            "n_clusters": 7,
         },
         "Coronavirinae nsp12": {
             "fasta_path": "data/input/nsp12_protein.fa",
@@ -182,16 +185,23 @@ def run_analyses(
             pop_cov_df,
             config.compare_antigens_fig,
         )
-    if config.run_population_coverage:
-        print("Running population coverage...")
+
+    ###########################
+    # Antigen specific analyses
+    ###########################
+
+    if config.run_population_coverage or config.run_pathogen_coverage:
+        print(f"Design vaccine for {config.antigen}")
         # TODO: Save all vaccine designs rather than computing one here
         antigen_dict = antigens_dict[config.antigen]
-        params["fasta_path"] = antigen_dict["fasta_path"]
-        params["results_dir"] = antigen_dict["results_dir"]
+        for param, value in antigen_dict.items():
+            params[param] = value
         kmergraph_config = EpitopeGraphConfig(**params)
-        G = antigen_graphs[config.antigen]
+        # G = antigen_graphs[config.antigen]
+        G = build_epitope_graph(kmergraph_config)
         Q = design_vaccines(G, kmergraph_config)
-
+    if config.run_population_coverage:
+        print("Running population coverage...")
         generate_and_plot_population_coverage(
             csv_path=config.population_coverage_csv,
             svg_path=config.population_coverage_fig,
@@ -199,6 +209,19 @@ def run_analyses(
             config=kmergraph_config,
             epitope_graph=G,
             n_targets=list(range(0, 81)),
+        )
+    if config.run_pathogen_coverage:
+        print("Running pathogen coverage...")
+        fig, comp_df = plot_vaccine_design_pca(
+            Q, config=kmergraph_config, interactive=False, plot_type="2D"
+        )
+        generate_and_plot_pathogen_coverage(
+            csv_path=config.pathogen_coverage_csv,
+            svg_path=config.pathogen_coverage_fig,
+            config=kmergraph_config,
+            comp_df=comp_df,
+            vaccine_designs=Q,
+            epitope_graph=G,
         )
 
 
@@ -632,7 +655,9 @@ def generate_population_coverage_data(
     return pop_cov_df
 
 
-def transform_population_data(df: pd.DataFrame) -> pd.DataFrame:
+def transform_population_data(
+    df: pd.DataFrame, group_col="ancestry", group_cols=["ancestry", "mhc_type"]
+) -> pd.DataFrame:
     """
     Transforms the population coverage data to represent the fraction
     of the population with exactly n peptide-HLA hits.
@@ -640,8 +665,8 @@ def transform_population_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["n_target"] = df["n_target"].astype(int)
     transformed_data = []
-    grouped = df.groupby(["ancestry", "mhc_type"])
-    for (ancestry, mhc), group in grouped:
+    grouped = df.groupby(group_cols)
+    for group_keys, group in grouped:
         group = group.sort_values(by="n_target").reset_index(drop=True)
         exact_pop_cov = [
             group["pop_cov"][i] - group["pop_cov"][i + 1]
@@ -649,17 +674,167 @@ def transform_population_data(df: pd.DataFrame) -> pd.DataFrame:
             else group["pop_cov"][i]
             for i in range(len(group))
         ]
+        data_dict = {
+            group_col: group_keys[0],  # By default, the first key is group_col
+            "mhc_type": group_keys[1],  # By default, the second key is mhc_type
+            "n_target": None,
+            "pop_cov": None,
+        }
+
+        # If there are more keys, it means vaccine_coverage is present.
+        if len(group_keys) > 2:
+            data_dict["vaccine_coverage"] = group_keys[2]
+
         for n_target, pop_cov in zip(group["n_target"], exact_pop_cov):
-            transformed_data.append(
-                {
-                    "ancestry": ancestry,
-                    "mhc_type": mhc,
-                    "n_target": n_target,
-                    "pop_cov": max(0, pop_cov),
-                }
-            )
+            data_dict["n_target"] = n_target
+            data_dict["pop_cov"] = max(0, pop_cov)
+            transformed_data.append(data_dict.copy())
 
     return pd.DataFrame(transformed_data)
+
+
+#####################################################
+# Evaluate the pathogen coverage for a single antigen
+#####################################################
+
+
+def compute_coverage(
+    config: EpitopeGraphConfig,
+    comp_df: pd.DataFrame,
+    vaccine_designs: list,
+    epitope_graph: nx.Graph,
+    mhc_types: list = ["mhc1", "mhc2"],
+    vaccine_coverage: list = [False, True],
+) -> pd.DataFrame:
+    """
+    Compute coverage for all sequences in the input components dataframe.
+    """
+
+    # Initialise dict
+    pop_cov_dict = {
+        "mhc_type": [],
+        "seq_id": [],
+        "pop_cov": [],
+        "cov_type": [],
+        "n_target": [],
+        "vaccine_coverage": [],
+    }
+
+    # Get all sequences and k-mers
+    seqs_dict = load_fasta(config.fasta_path)
+    seqs_dict["vaccine_design"] = path_to_seq(vaccine_designs[0])
+    kmers_dict = dict(epitope_graph.nodes(data=True))
+
+    # Get the vaccine sequence and k-mers
+    vaccine_seq = seqs_dict["vaccine_design"]
+    vaccine_kmers = seq_to_kmers(vaccine_seq, config.k, epitope_graph)
+
+    # For each MHC type
+    for mhc_type in mhc_types:
+        hap_freq_path = (
+            config.hap_freq_mhc1_path
+            if mhc_type == "mhc1"
+            else config.hap_freq_mhc2_path
+        )
+        hap_freq, average_frequency = load_haplotypes(hap_freq_path)
+        overlap_haplotypes = load_overlap(kmers_dict, hap_freq, config, mhc_type)
+
+        # For each sequence in comp_df
+        for i, row in tqdm(comp_df.iterrows(), total=len(comp_df)):
+            seq_id = row["Sequence_id"]
+            seq = seqs_dict[seq_id]
+
+            for coverage in sorted(vaccine_coverage):
+                kmers = seq_to_kmers(seq, config.k, epitope_graph)
+                if coverage:
+                    kmers = [kmer for kmer in kmers if kmer in vaccine_kmers]
+                print(f"Coverage: {coverage}")
+                print(f"# of k-mers {len(kmers)}")
+
+                # Compute the coverage
+                pop_cov = 1
+                n_target = 0
+                while pop_cov > 0:
+                    pop_cov = optivax_robust(
+                        overlap_haplotypes,
+                        average_frequency,
+                        n_target,
+                        kmers,
+                        kmers_dict,
+                    )
+                    n_target += 1
+                    pop_cov_dict["mhc_type"].append(mhc_type)
+                    pop_cov_dict["seq_id"].append(seq_id)
+                    pop_cov_dict["pop_cov"].append(pop_cov)
+                    pop_cov_dict["cov_type"].append("cov")
+                    pop_cov_dict["n_target"].append(n_target)
+                    pop_cov_dict["vaccine_coverage"].append(coverage)
+                vax_cov = "VAX" if coverage else "WTs"
+                print(f"{seq_id} {mhc_type} {vax_cov} {pop_cov}")
+
+    pop_cov_df = pd.DataFrame(pop_cov_dict)
+    return pop_cov_df
+
+
+def compute_exp_dps(
+    pop_cov_df: pd.DataFrame,
+    comp_df: pd.DataFrame,
+    mhc_types: list = ["mhc1", "mhc2"],
+) -> pd.DataFrame:
+    """
+    Add the expected # of displayed peptides to the components dataframe.
+    """
+    pop_cov_df = transform_population_data(
+        pop_cov_df,
+        group_col="seq_id",
+        group_cols=["seq_id", "mhc_type", "vaccine_coverage"],
+    )
+    # For each sequence in the dataframe compute the expected number of displayed peptides
+    for mhc_type in mhc_types:
+        for seq_id in pop_cov_df["seq_id"].unique():
+            for coverage in pop_cov_df["vaccine_coverage"].unique():
+                cov_label = "vax" if coverage else "wts"
+                seq_df = pop_cov_df[
+                    (pop_cov_df["seq_id"] == seq_id)
+                    & (pop_cov_df["mhc_type"] == mhc_type)
+                    & (pop_cov_df["vaccine_coverage"] == coverage)
+                ]
+                count = seq_df["n_target"].values
+                freq = seq_df["pop_cov"].values
+                exp = (count * freq).sum()
+                comp_df.loc[
+                    comp_df["Sequence_id"] == seq_id,
+                    f"E(#DPs)_{cov_label}_cov_{mhc_type}",
+                ] = exp
+    return comp_df
+
+
+def generate_and_plot_pathogen_coverage(
+    csv_path: str,
+    svg_path: str,
+    config: EpitopeGraphConfig,
+    comp_df: pd.DataFrame,
+    vaccine_designs: list,
+    epitope_graph: nx.Graph,
+):
+    """
+    Generate and plot the expected number of displayed peptides for each target input sequence.
+    """
+    # Check if the coverage dataframe already exists
+    if os.path.exists(csv_path):
+        comp_df = pd.read_csv(csv_path)
+    else:
+        pop_cov_df = compute_coverage(
+            config,
+            comp_df,
+            vaccine_designs,
+            epitope_graph,
+            mhc_types=["mhc1", "mhc2"],
+            vaccine_coverage=[True, False],
+        )
+        comp_df = compute_exp_dps(pop_cov_df, comp_df, mhc_types=["mhc1", "mhc2"])
+        comp_df.to_csv(csv_path, index=False)
+    plot_path_exp_dps(comp_df, svg_path)
 
 
 ###############################################################
@@ -1601,11 +1776,13 @@ if __name__ == "__main__":
         "n_clusters": None,
         "weights": {
             "frequency": 1.0,
-            "population_coverage_mhc1": 1.0,
+            "population_coverage_mhc1": 2.0,
             "population_coverage_mhc2": 1.0,
             "clade": 1.0,
         },
         "affinity_predictors": ["netmhcpan"],
+        "immune_scores_mhc1_path": "data/results/MHC_Binding/sar_mer_nuc_protein_immune_scores_netmhc.pkl",
+        "immune_scores_mhc2_path": "data/results/MHC_Binding/sar_mer_nuc_protein_immune_scores_netmhcii.pkl",
     }
     analyses_params = {
         "results_dir": "data/outputs",
@@ -1615,7 +1792,7 @@ if __name__ == "__main__":
         "run_netmhc_calibration": False,
         "run_kmer_graphs": False,
         "run_compare_antigens": False,
-        "run_population_coverage": True,
+        "run_population_coverage": False,
     }
     config = AnalysesConfig(**analyses_params)
     run_analyses(config, kmer_graph_params)
