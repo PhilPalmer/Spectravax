@@ -740,7 +740,7 @@ def compute_coverage(
         overlap_haplotypes = load_overlap(kmers_dict, hap_freq, config, mhc_type)
 
         # For each sequence in comp_df
-        for i, row in tqdm(comp_df.iterrows(), total=len(comp_df)):
+        for i, row in comp_df.iterrows():
             seq_id = row["Sequence_id"]
             seq = seqs_dict[seq_id]
 
@@ -748,8 +748,6 @@ def compute_coverage(
                 kmers = seq_to_kmers(seq, config.k, epitope_graph)
                 if coverage:
                     kmers = [kmer for kmer in kmers if kmer in vaccine_kmers]
-                print(f"Coverage: {coverage}")
-                print(f"# of k-mers {len(kmers)}")
 
                 # Compute the coverage
                 pop_cov = 1
