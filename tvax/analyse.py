@@ -25,6 +25,7 @@ from tvax.plot import (
     plot_antigens_comparison,
     plot_binding_criteria_eval,
     plot_calibration_curves,
+    plot_experimental_predictions,
     plot_path_exp_dps,
     plot_kmer_filtering,
     plot_kmer_graphs,
@@ -73,10 +74,12 @@ def antigens_dict():
             "fasta_path": "data/results_flua_m1/Seq_Preprocessing/flua_m1.fasta",
             "results_dir": "data/results_flua_m1/",
         },
-        "Betacoronavirus N": {
+        "Sarbeco-Merbeco N": {
             "fasta_path": "data/input/sar_mer_nuc_protein_clustered_95.fasta",
             "results_dir": "data/results",
             "n_clusters": 7,
+            "immune_scores_mhc1_path": "data/results/MHC_Binding/sar_mer_nuc_protein_immune_scores_netmhc.pkl",
+            "immune_scores_mhc2_path": "data/results/MHC_Binding/sar_mer_nuc_protein_immune_scores_netmhcii.pkl",
         },
         "Coronavirinae nsp12": {
             "fasta_path": "data/input/nsp12_protein.fa",
@@ -190,13 +193,18 @@ def run_analyses(
     # Antigen specific analyses
     ###########################
 
-    if config.run_population_coverage or config.run_pathogen_coverage:
-        print(f"Design vaccine for {config.antigen}")
+    if (
+        config.run_population_coverage
+        or config.run_pathogen_coverage
+        or config.run_experimental_prediction
+    ):
         # TODO: Save all vaccine designs rather than computing one here
         antigen_dict = antigens_dict[config.antigen]
         for param, value in antigen_dict.items():
             params[param] = value
         kmergraph_config = EpitopeGraphConfig(**params)
+    if config.run_population_coverage or config.run_pathogen_coverage:
+        print(f"Design vaccine for {config.antigen}")
         # G = antigen_graphs[config.antigen]
         G = build_epitope_graph(kmergraph_config)
         Q = design_vaccines(G, kmergraph_config)
@@ -222,6 +230,19 @@ def run_analyses(
             comp_df=comp_df,
             vaccine_designs=Q,
             epitope_graph=G,
+        )
+    if config.run_experimental_prediction:
+        print("Running prediction of experimental results...")
+        generate_and_plot_exp_pred_data(
+            experimental_prediction_csv=config.experimental_prediction_csv,
+            experimental_prediction_fig=config.experimental_prediction_fig,
+            fasta_path=config.exp_fasta_path,
+            results_dir=config.exp_pred_dir,
+            mhc1_epitopes_path=config.mhc1_epitopes_path,
+            mhc2_epitopes_path=config.mhc2_epitopes_path,
+            ks=kmergraph_config.k,
+            mhc_alleles={"mhc1": ["H-2-Kb", "H-2-Db"], "mhc2": ["H-2-IAb"]},
+            test_peptide_ids=["SARS-CoV-1", "SARS-CoV-2", "MERS-CoV"],
         )
 
 
@@ -1457,164 +1478,305 @@ def compare_citvax_methods(
 ##########################################################
 
 
-def pred_human_n_hits(config: EpitopeGraphConfig) -> pd.DataFrame:
+def load_seqs_from_fasta(fasta_path):
     """
-    Predict the number of peptide-HLA hits for the human population.
+    Load sequences from a FASTA file.
     """
-    return pred_n_hits_parallel(
-        workdir="data/human_mhcs",
-        fasta_path="data/mice_mhcs/NP_designs_June2023.txt",
-        mhc_alleles=get_hla_alleles(config),
-        mhc1_epitopes_path="data/input/epitopes_human_mhc1.csv",
-        mhc2_epitopes_path="data/input/epitopes_human_mhc2.csv",
+    return list(SeqIO.parse(fasta_path, "fasta"))
+
+
+def generate_all_peptides(peptides_dict, peptides_path):
+    """
+    Write all peptides to a file.
+    """
+    all_peptides = set(
+        peptide for peptides in peptides_dict.values() for peptide in peptides
     )
+    with open(peptides_path, "w") as f:
+        for peptide in all_peptides:
+            f.write(peptide + "\n")
+    return all_peptides
 
 
-def pred_mouse_n_hits() -> pd.DataFrame:
+def predict_binding_for_alleles(peptides_path, mhc_alleles, preds_dir):
     """
-    Predict the number of peptide-H-2 hits for C57BL/6 mice.
+    Predict binding using NetMHCpan or NetMHCIIpan for each allele.
     """
-    return pred_n_hits_parallel(
-        workdir="data/mice_mhcs",
-        fasta_path="data/mice_mhcs/NP_designs_June2023.txt",
-        mhc1_epitopes_path="data/input/epitopes_mice_c57bl6_mhc1.csv",
-        mhc2_epitopes_path="data/input/epitopes_mice_c57bl6_mhc2.csv",
-    )
+    binding_predictions = []
+    for mhc_class, alleles in mhc_alleles.items():
+        for allele in alleles:
+            netmhcpan_cmd = "netMHCpan" if mhc_class == "mhc1" else "netMHCIIpan"
+            peptides_flag = f"-p" if mhc_class == "mhc1" else f"-inptype 1 -f"
+            allele_path = f"{preds_dir}/{mhc_class}_{allele.replace('*', '_').replace(':', '')}_preds.xls"
+            cmd = f"{netmhcpan_cmd} {peptides_flag} {peptides_path} -a {allele} -BA -xls -xlsfile {allele_path}"
+            subprocess.run(cmd, shell=True)
+            preds_df = pd.read_csv(allele_path, delimiter="\t", skiprows=[0])
+            preds_df["mhc_class"] = mhc_class
+            preds_df["allele"] = allele
+            preds_df = preds_df.rename(
+                columns={
+                    "Peptide": "peptide",
+                    "Core": "core",
+                    "Score_BA": "BA-score",
+                    "Rank_BA": "BA_Rank",
+                    "Score": "EL-score",
+                    "Rank": "EL_Rank",
+                }
+            )
+            binding_predictions.append(preds_df)
+    return pd.concat(binding_predictions)
 
 
-def get_hla_alleles(config: EpitopeGraphConfig) -> dict:
-    """
-    Returns a dictionary of HLA alleles for MHC1 and MHC2.
-    """
-    mhc1_alleles = pd.read_csv(
-        config.mhc1_alleles_path, sep="\t", header=None, names=["allele"]
-    )
-    mhc2_alleles = pd.read_csv(
-        config.mhc2_alleles_path, sep="\t", header=None, names=["allele"]
-    )
-    return {
-        "mhc1": mhc1_alleles["allele"].tolist(),
-        "mhc2": mhc2_alleles["allele"].tolist(),
-    }
-
-
-def pred_n_hits_parallel(
-    workdir: str = "data/mice_mhcs",
-    fasta_path: str = "data/mice_mhcs/NP_designs_June2023.txt",
-    mhc_alleles: dict = {"mhc1": ["H-2-Kb", "H-2-Db"], "mhc2": ["H-2-IAb"]},
-    mhc1_epitopes_path: str = "data/input/mhc1_epitopes.csv",
-    mhc2_epitopes_path: str = "data/input/mhc2_epitopes.csv",
-    num_threads: int = 4,
-    out_path: str = None,
+def process_binding_predictions(
+    peptides_dict, test_peptide_ids, binders_df, mhc_alleles
 ):
     """
-    Predict the number of hits for all sequences in a FASTA file.
+    Process binding predictions to get the EL-scores for each sequence.
     """
-    dfs = []
+    results = []
+    for seq_id, peptides in peptides_dict.items():
+        for test_id in test_peptide_ids:
+            test_peptides = peptides_dict[test_id]
+            intersection = set(peptides).intersection(test_peptides)
+            for mhc_class, alleles in mhc_alleles.items():
+                for allele in alleles:
+                    df = binders_df.loc[intersection, allele]
+                    for peptide in intersection:
+                        entry = {
+                            "seq_id": seq_id,
+                            "test_seq_id": test_id,
+                            "peptide": peptide,
+                            "mhc_class": mhc_class,
+                            "allele": allele,
+                            "EL-score": df.loc[peptide],
+                        }
+                        results.append(entry)
+    return pd.DataFrame(results)
 
-    def process_allele(mhc_class, allele):
-        netmhcpan_cmd = "netMHCpan" if mhc_class == "mhc1" else "netMHCIIpan"
-        allele_clean = allele.replace("*", "_").replace(":", "").replace("-", "")
-        outpath = f"{workdir}/{allele_clean}_{mhc_class}_predictions.txt"
-        cmd = f"{netmhcpan_cmd} -f {fasta_path} -a {allele} -BA -xls -xlsfile {outpath}"
-        subprocess.run(cmd, shell=True)
 
-        # Read in and process the predictions into a dataframe
-        df = pd.read_csv(outpath, delimiter="\t", skiprows=[0])
-        df["mhc_class"] = mhc_class
-        df["allele"] = allele
-        df = df.rename(
-            columns={
-                "Peptide": "peptide",
-                "Core": "core",
-                "Score_BA": "BA-score",
-                "Rank_BA": "BA_Rank",
-                "Score": "EL-score",
-                "Rank": "EL_Rank",
-            }
-        )
-        if "nM" not in df.columns:
-            df["nM"] = 50000 ** (1 - df["BA-score"])
-        df["transformed_affinity"] = df["nM"].apply(transform_affinity)
-        return df
+def add_epitope_info(results_df, mhc1_epitopes_path, mhc2_epitopes_path, ks):
+    """
+    Add epitope information to the results dataframe.
+    """
+    mhc1_epitopes_df = pd.read_csv(mhc1_epitopes_path, header=1)
+    mhc2_epitopes_df = pd.read_csv(mhc2_epitopes_path, header=1)
+    mhc1_epitopes_df["epitope_length"] = mhc1_epitopes_df["Name"].str.len()
+    mhc2_epitopes_df["epitope_length"] = mhc2_epitopes_df["Name"].str.len()
+    mhc1_epitopes_df = mhc1_epitopes_df[mhc1_epitopes_df["epitope_length"].isin(ks)]
+    mhc2_epitopes_df = mhc2_epitopes_df[mhc2_epitopes_df["epitope_length"].isin(ks)]
+    mhc1_epitopes = set(mhc1_epitopes_df["Name"].tolist())
+    mhc2_epitopes = set(mhc2_epitopes_df["Name"].tolist())
 
-    with ThreadPoolExecutor(max_workers=num_threads) as executor:
-        # Submit tasks for each combination of mhc_class and allele
-        futures = [
-            executor.submit(process_allele, mhc_class, allele)
-            for mhc_class, alleles in mhc_alleles.items()
-            for allele in alleles
-        ]
-
-        # Process the results as they become available
-        for future in as_completed(futures):
-            result = future.result()
-            dfs.append(result)
-
-    # Create a dataframe of the number of epitopes, <50nm, strong and weak binders for each vaccine design
-    pmhc_aff = pd.concat(dfs)
-    binders_df = pd.DataFrame(columns=["ID", "mhc_class", "<50nM", "strong", "weak"])
-
-    if mhc1_epitopes_path is not None and mhc2_epitopes_path is not None:
-        mhc1_epitopes = pd.read_csv(mhc1_epitopes_path, header=1)
-        mhc2_epitopes = pd.read_csv(mhc2_epitopes_path, header=1)
-        mhc1_epitopes = set(mhc1_epitopes["Name"].tolist())
-        mhc2_epitopes = set(mhc2_epitopes["Name"].tolist())
-
-    for id in pmhc_aff.ID.unique():
-        for mhc in mhc_alleles.keys():
-            df = pmhc_aff[(pmhc_aff["mhc_class"] == mhc) & (pmhc_aff["ID"] == id)]
-            vstrong_affinity_cutoff = 0.638
-            strong_affinity_cutoff = 0.5 if mhc == "mhc1" else 1.0
-            weak_affinity_cutoff = 2.0 if mhc == "mhc1" else 5.0
-            if mhc == "mhc1":
-                n_epitopes = int(
-                    len([m for m in df["peptide"].unique() if m in mhc1_epitopes])
-                )
-            else:
-                n_epitopes = int(
-                    len([m for m in df["peptide"].unique() if m in mhc2_epitopes])
-                )
-            n_vstrong_binders = len(
-                df[df["transformed_affinity"] > vstrong_affinity_cutoff]
-            )
-            n_strong_binders = len(df[df["BA_Rank"] < strong_affinity_cutoff])
-            n_weak_binders = len(df[df["BA_Rank"] < weak_affinity_cutoff])
-            # TODO: Add a column for the number of epitopes found in IEDB
-            binders_df = binders_df.append(
-                {
-                    "ID": id,
-                    "mhc_class": mhc,
-                    "weak": n_weak_binders,
-                    "strong": n_strong_binders,
-                    "<50nM": n_vstrong_binders,
-                    "epitope": n_epitopes,
-                },
-                ignore_index=True,
-            )
-
-    # Melt and rename values in the dataframe
-    binders_df = binders_df.melt(
-        id_vars=["ID", "mhc_class"], var_name="binding_threshold", value_name="hits"
+    # Add a column to indicate if the peptide is an epitope in results_df either 0 or 1
+    results_df["is_mhc1_epitope"] = (
+        results_df["peptide"].isin(mhc1_epitopes).astype(int)
     )
-    binders_df["mhc_class"] = binders_df["mhc_class"].replace(
-        {"mhc1": "MHC Class I", "mhc2": "MHC Class II"}
+    results_df["is_mhc2_epitope"] = (
+        results_df["peptide"].isin(mhc2_epitopes).astype(int)
     )
-    binders_df["binding_threshold"] = binders_df["binding_threshold"].replace(
-        {
-            "epitope": "Experimentally Observed (IEDB)",
-            "<50nM": "Very Strong (<50nM)",
-            "strong": "Strong",
-            "weak": "Weak",
+    return results_df
+
+
+def generate_and_plot_exp_pred_data(
+    experimental_prediction_csv: Path,
+    experimental_prediction_fig: Path,
+    fasta_path: Path,
+    results_dir: Path,
+    mhc1_epitopes_path: Path,
+    mhc2_epitopes_path: Path,
+    ks: list,
+    mhc_alleles: dict = {"mhc1": ["H-2-Kb", "H-2-Db"], "mhc2": ["H-2-IAb"]},
+    test_peptide_ids: list = ["SARS-CoV-1", "SARS-CoV-2", "MERS-CoV"],
+):
+    """
+    Generate and plot the predicted experimental data.
+    """
+    if not experimental_prediction_csv.exists():
+        preds_dir = f"{results_dir}/preds"
+        peptides_path = f"{results_dir}/all_peptides.txt"
+        seq_records = load_seqs_from_fasta(fasta_path)
+        peptides_dict = {
+            record.id: kmerise_simple(str(record.seq), ks) for record in seq_records
         }
-    )
-    binders_df["ID"] = binders_df["ID"].replace({"CITVax_dStab": "CITVax-dStab"})
 
-    if out_path is None:
-        out_path = f"{workdir}/pred_hits.csv"
-    binders_df.to_csv(out_path, index=False)
+        if not Path(preds_dir).exists():
+            Path(preds_dir).mkdir(parents=True, exist_ok=True)
 
-    return binders_df
+        all_peptides = generate_all_peptides(peptides_dict, peptides_path)
+        binders_df = predict_binding_for_alleles(peptides_path, mhc_alleles, preds_dir)
+        results_df = process_binding_predictions(
+            peptides_dict, test_peptide_ids, binders_df, mhc_alleles
+        )
+        results_df = add_epitope_info(
+            results_df, mhc1_epitopes_path, mhc2_epitopes_path, ks
+        )
+        results_df.to_csv(experimental_prediction_csv, index=False)
+    else:
+        results_df = pd.read_csv(experimental_prediction_csv)
+
+    plot_experimental_predictions(results_df, experimental_prediction_fig)
+
+    return results_df
+
+
+# def pred_human_n_hits(config: EpitopeGraphConfig) -> pd.DataFrame:
+#     """
+#     Predict the number of peptide-HLA hits for the human population.
+#     """
+#     return pred_n_hits_parallel(
+#         workdir="data/human_mhcs",
+#         fasta_path="data/mice_mhcs/NP_designs_June2023.txt",
+#         mhc_alleles=get_hla_alleles(config),
+#         mhc1_epitopes_path="data/input/epitopes_human_mhc1.csv",
+#         mhc2_epitopes_path="data/input/epitopes_human_mhc2.csv",
+#     )
+
+
+# def pred_mouse_n_hits() -> pd.DataFrame:
+#     """
+#     Predict the number of peptide-H-2 hits for C57BL/6 mice.
+#     """
+#     return pred_n_hits_parallel(
+#         workdir="data/mice_mhcs",
+#         fasta_path="data/mice_mhcs/NP_designs_June2023.txt",
+#         mhc1_epitopes_path="data/input/epitopes_mice_c57bl6_mhc1.csv",
+#         mhc2_epitopes_path="data/input/epitopes_mice_c57bl6_mhc2.csv",
+#     )
+
+
+# def get_hla_alleles(config: EpitopeGraphConfig) -> dict:
+#     """
+#     Returns a dictionary of HLA alleles for MHC1 and MHC2.
+#     """
+#     mhc1_alleles = pd.read_csv(
+#         config.mhc1_alleles_path, sep="\t", header=None, names=["allele"]
+#     )
+#     mhc2_alleles = pd.read_csv(
+#         config.mhc2_alleles_path, sep="\t", header=None, names=["allele"]
+#     )
+#     return {
+#         "mhc1": mhc1_alleles["allele"].tolist(),
+#         "mhc2": mhc2_alleles["allele"].tolist(),
+#     }
+
+
+# def pred_n_hits_parallel(
+#     workdir: str = "data/mice_mhcs",
+#     fasta_path: str = "data/mice_mhcs/NP_designs_June2023.txt",
+#     mhc_alleles: dict = {"mhc1": ["H-2-Kb", "H-2-Db"], "mhc2": ["H-2-IAb"]},
+#     mhc1_epitopes_path: str = "data/input/mhc1_epitopes.csv",
+#     mhc2_epitopes_path: str = "data/input/mhc2_epitopes.csv",
+#     num_threads: int = 4,
+#     out_path: str = None,
+# ):
+#     """
+#     Predict the number of hits for all sequences in a FASTA file.
+#     """
+#     dfs = []
+
+#     def process_allele(mhc_class, allele):
+#         netmhcpan_cmd = "netMHCpan" if mhc_class == "mhc1" else "netMHCIIpan"
+#         allele_clean = allele.replace("*", "_").replace(":", "").replace("-", "")
+#         outpath = f"{workdir}/{allele_clean}_{mhc_class}_predictions.txt"
+#         cmd = f"{netmhcpan_cmd} -f {fasta_path} -a {allele} -BA -xls -xlsfile {outpath}"
+#         subprocess.run(cmd, shell=True)
+
+#         # Read in and process the predictions into a dataframe
+#         df = pd.read_csv(outpath, delimiter="\t", skiprows=[0])
+#         df["mhc_class"] = mhc_class
+#         df["allele"] = allele
+#         df = df.rename(
+#             columns={
+#                 "Peptide": "peptide",
+#                 "Core": "core",
+#                 "Score_BA": "BA-score",
+#                 "Rank_BA": "BA_Rank",
+#                 "Score": "EL-score",
+#                 "Rank": "EL_Rank",
+#             }
+#         )
+#         if "nM" not in df.columns:
+#             df["nM"] = 50000 ** (1 - df["BA-score"])
+#         df["transformed_affinity"] = df["nM"].apply(transform_affinity)
+#         return df
+
+#     with ThreadPoolExecutor(max_workers=num_threads) as executor:
+#         # Submit tasks for each combination of mhc_class and allele
+#         futures = [
+#             executor.submit(process_allele, mhc_class, allele)
+#             for mhc_class, alleles in mhc_alleles.items()
+#             for allele in alleles
+#         ]
+
+#         # Process the results as they become available
+#         for future in as_completed(futures):
+#             result = future.result()
+#             dfs.append(result)
+
+#     # Create a dataframe of the number of epitopes, <50nm, strong and weak binders for each vaccine design
+#     pmhc_aff = pd.concat(dfs)
+#     binders_df = pd.DataFrame(columns=["ID", "mhc_class", "<50nM", "strong", "weak"])
+
+#     if mhc1_epitopes_path is not None and mhc2_epitopes_path is not None:
+#         mhc1_epitopes = pd.read_csv(mhc1_epitopes_path, header=1)
+#         mhc2_epitopes = pd.read_csv(mhc2_epitopes_path, header=1)
+#         mhc1_epitopes = set(mhc1_epitopes["Name"].tolist())
+#         mhc2_epitopes = set(mhc2_epitopes["Name"].tolist())
+
+#     for id in pmhc_aff.ID.unique():
+#         for mhc in mhc_alleles.keys():
+#             df = pmhc_aff[(pmhc_aff["mhc_class"] == mhc) & (pmhc_aff["ID"] == id)]
+#             vstrong_affinity_cutoff = 0.638
+#             strong_affinity_cutoff = 0.5 if mhc == "mhc1" else 1.0
+#             weak_affinity_cutoff = 2.0 if mhc == "mhc1" else 5.0
+#             if mhc == "mhc1":
+#                 n_epitopes = int(
+#                     len([m for m in df["peptide"].unique() if m in mhc1_epitopes])
+#                 )
+#             else:
+#                 n_epitopes = int(
+#                     len([m for m in df["peptide"].unique() if m in mhc2_epitopes])
+#                 )
+#             n_vstrong_binders = len(
+#                 df[df["transformed_affinity"] > vstrong_affinity_cutoff]
+#             )
+#             n_strong_binders = len(df[df["BA_Rank"] < strong_affinity_cutoff])
+#             n_weak_binders = len(df[df["BA_Rank"] < weak_affinity_cutoff])
+#             # TODO: Add a column for the number of epitopes found in IEDB
+#             binders_df = binders_df.append(
+#                 {
+#                     "ID": id,
+#                     "mhc_class": mhc,
+#                     "weak": n_weak_binders,
+#                     "strong": n_strong_binders,
+#                     "<50nM": n_vstrong_binders,
+#                     "epitope": n_epitopes,
+#                 },
+#                 ignore_index=True,
+#             )
+
+#     # Melt and rename values in the dataframe
+#     binders_df = binders_df.melt(
+#         id_vars=["ID", "mhc_class"], var_name="binding_threshold", value_name="hits"
+#     )
+#     binders_df["mhc_class"] = binders_df["mhc_class"].replace(
+#         {"mhc1": "MHC Class I", "mhc2": "MHC Class II"}
+#     )
+#     binders_df["binding_threshold"] = binders_df["binding_threshold"].replace(
+#         {
+#             "epitope": "Experimentally Observed (IEDB)",
+#             "<50nM": "Very Strong (<50nM)",
+#             "strong": "Strong",
+#             "weak": "Weak",
+#         }
+#     )
+#     binders_df["ID"] = binders_df["ID"].replace({"CITVax_dStab": "CITVax-dStab"})
+
+#     if out_path is None:
+#         out_path = f"{workdir}/pred_hits.csv"
+#     binders_df.to_csv(out_path, index=False)
+
+#     return binders_df
 
 
 ############################################
@@ -1779,8 +1941,6 @@ if __name__ == "__main__":
             "clade": 1.0,
         },
         "affinity_predictors": ["netmhcpan"],
-        "immune_scores_mhc1_path": "data/results/MHC_Binding/sar_mer_nuc_protein_immune_scores_netmhc.pkl",
-        "immune_scores_mhc2_path": "data/results/MHC_Binding/sar_mer_nuc_protein_immune_scores_netmhcii.pkl",
     }
     analyses_params = {
         "results_dir": "data/outputs",
@@ -1791,6 +1951,12 @@ if __name__ == "__main__":
         "run_kmer_graphs": False,
         "run_compare_antigens": False,
         "run_population_coverage": False,
+        "run_pathogen_coverage": False,
+        "run_experimental_prediction": True,
+        "exp_fasta_path": "data/mice_mhcs/NP_designs_Oct2023.fasta",
+        "exp_pred_dir": "data/mice_mhcs",
+        "mhc1_epitopes_path": "data/input/epitopes_mice_c57bl6_mhc1.csv",
+        "mhc2_epitopes_path": "data/input/epitopes_mice_c57bl6_mhc2.csv",
     }
     config = AnalysesConfig(**analyses_params)
     run_analyses(config, kmer_graph_params)

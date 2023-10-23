@@ -969,7 +969,7 @@ def plot_path_exp_dps(
             )
 
     # Save the figure
-    fig.subplots_adjust(hspace=0.3, wspace=0.3)
+    fig.subplots_adjust(hspace=0.3, wspace=0.4)
     if svg_path:
         plt.savefig(svg_path)
 
@@ -1618,48 +1618,145 @@ def plot_path_cov_swarmplot(
 ###########################################################################
 
 
-def plot_predicted_hits_barplot(
-    binders_df: pd.DataFrame, out_path: str = "data/figures/predicted_mice_mhc_hits.png"
-) -> None:
+def plot_mhc_data(mhc_class, ax1, ax2, ax3, df, vmax=None):
     """
-    Plot the predicted number of peptide-MHC hits for different sequences
+    Plot the number of epitopes for each experimental group.
     """
-    # Define the style
-    sns.set(style="whitegrid")
-    sns.set_palette("colorblind")
+    subset_df = df[df["mhc_class"] == mhc_class]
+    mhc_str = "MHC-I" if mhc_class == "mhc1" else "MHC-II"
+    netmhc = "NetMHCpan" if mhc_class == "mhc1" else "NetMHCIIpan"
 
-    # Generate the plot
-    g = sns.FacetGrid(
-        binders_df,
-        col="mhc_class",
-        hue="binding_threshold",
-        hue_order=[
-            "Weak",
-            "Strong",
-            "Very Strong (<50nM)",
-            "Experimentally Observed (IEDB)",
-        ],
-        col_wrap=2,
-        height=4,
-        aspect=1.5,
+    # Plot the number of epitopes on ax1
+    sns.barplot(
+        data=subset_df,
+        x="seq_id",
+        y="is_mhc1_epitope",
+        hue="test_seq_id",
+        estimator=sum,
+        ax=ax1,
+        ci=None,
+        palette="colorblind",
     )
-    g.map(sns.barplot, "ID", "hits", order=sorted(binders_df.ID.unique())).add_legend()
+    ax1.set_title(
+        f"Number of {mhc_str} Epitopes Observed Experimentally (Source: IEDB)"
+    )
+    if vmax:
+        ax1.set_ylim(bottom=0, top=vmax)
+    ax1.set_xlabel("")
+    ax1.set_ylabel("#Epitopes")
+    ax1.legend().set_visible(False)
 
-    # Add labels
-    g.fig.subplots_adjust(wspace=0.1)
-    g.despine(left=True)
-    mhc = "H-2" if "mice" in out_path else "HLA"
-    g.set_axis_labels("", f"Number of peptide-{mhc} hits")
-    g.legend.set_title("Binding threshold")
-    g.set_titles("{col_name}")
-    # Rotate the x-axis labels
-    for ax in g.axes.flat:
-        ax.set_xticklabels(
-            ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor"
+    # Plot expected number of displayed peptides on ax2 subplot
+    sns.barplot(
+        data=subset_df,
+        x="seq_id",
+        y="EL-score",
+        hue="test_seq_id",
+        estimator=sum,
+        ax=ax2,
+        ci=None,
+        palette="colorblind",
+    )
+    ax2.set_title(
+        f"Expected Number of {mhc_str} Displayed Peptides (Prediction via {netmhc})"
+    )
+    if vmax:
+        ax2.set_ylim(bottom=0, top=vmax)
+    ax2.set_xlabel("")
+    ax2.set_ylabel("E(#DPs)")
+    ax2.legend().set_visible(False)
+
+    # Plot the main data on ax3 subplot
+    sns.violinplot(
+        data=subset_df,
+        x="seq_id",
+        y="EL-score",
+        hue="test_seq_id",
+        ax=ax3,
+        palette="colorblind",
+    )
+    sns.stripplot(
+        data=subset_df,
+        x="seq_id",
+        y="EL-score",
+        hue="test_seq_id",
+        dodge=True,
+        jitter=True,
+        ax=ax3,
+        alpha=0.5,
+        palette="colorblind",
+    )
+    ax3.set_title(
+        f"Probability Distribution for {mhc_str} Peptide Presentation (Predicted using {netmhc})"
+    )
+    ax3.set_ylim(bottom=0, top=1)
+    ax3.set_xlabel("Antigen")
+    ax3.set_ylabel("Eluted Ligand (EL) Score")
+    ax3.legend().set_visible(False)
+
+
+def plot_experimental_predictions(results_df: pd.DataFrame, out_path: str):
+    """
+    Plot the experimental and predicted number of displayed peptides for each antigen.
+    """
+    fig = plt.figure(figsize=(21, 10))
+
+    # Set up the grid layout
+    gs = GridSpec(3, 2, height_ratios=[2, 2, 6], width_ratios=[1, 1])
+
+    sns.set(style="whitegrid", palette="colorblind", font_scale=1.2)
+
+    # Sort by seq_id and test_seq_id
+    results_df = results_df.sort_values(by=["seq_id", "test_seq_id"])
+    grouped = (
+        results_df.groupby(["seq_id", "test_seq_id", "mhc_class"])["EL-score"]
+        .sum()
+        .reset_index()
+    )
+    vmax = grouped["EL-score"].max() + 1
+
+    # Create subplots for MHC-I
+    ax1_mhc1 = fig.add_subplot(gs[0, 0])
+    ax2_mhc1 = fig.add_subplot(gs[1, 0])
+    ax3_mhc1 = fig.add_subplot(gs[2, 0])
+
+    # Create subplots for MHC-II
+    ax1_mhc2 = fig.add_subplot(gs[0, 1])
+    ax2_mhc2 = fig.add_subplot(gs[1, 1])
+    ax3_mhc2 = fig.add_subplot(gs[2, 1])
+
+    # Plot the data
+    plot_mhc_data("mhc1", ax1_mhc1, ax2_mhc1, ax3_mhc1, results_df, vmax)
+    plot_mhc_data("mhc2", ax1_mhc2, ax2_mhc2, ax3_mhc2, results_df, vmax)
+
+    # Place legend outside the plot
+    handles, labels = ax3_mhc1.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    plt.legend(
+        by_label.values(),
+        by_label.keys(),
+        bbox_to_anchor=(1.05, 1),
+        loc=2,
+        borderaxespad=0.0,
+        title="Peptide Pool",
+        fontsize=14,
+        title_fontsize=16,
+    )
+
+    # Label each subplot with a letter
+    all_axes = [ax1_mhc1, ax1_mhc2, ax2_mhc1, ax2_mhc2, ax3_mhc1, ax3_mhc2]
+    for subplot_idx, subplot_ax in enumerate(all_axes):
+        subplot_ax.text(
+            -0.05,
+            1.05,
+            string.ascii_uppercase[subplot_idx],
+            transform=subplot_ax.transAxes,
+            size=24,
+            weight="bold",
         )
 
-    # Save the plot
-    g.savefig(out_path, dpi=300)
+    plt.tight_layout()
+    plt.savefig(out_path)
 
 
 ###################################################

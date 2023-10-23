@@ -96,6 +96,7 @@ class EpitopeGraphConfig(BaseModel):
     hap_freq_mhc1_path: Path = None
     hap_freq_mhc2_path: Path = None
     peptides_dir: Path = None
+    # TODO: Rename these files and gzip the immune scores
     immune_scores_mhc1_path: Optional[Path] = None
     immune_scores_mhc2_path: Optional[Path] = None
     raw_affinity_mhcflurry_path: Optional[Path] = None
@@ -266,7 +267,7 @@ class AnalysesConfig(BaseModel):
     compare_antigens_csv: Path = None
     compare_antigens_fig: Path = None
 
-    antigen: str = "Betacoronavirus N"
+    antigen: str = "Sarbeco-Merbeco N"
     # Population coverage
     run_population_coverage: bool = True
     population_coverage_csv: Path = None
@@ -275,6 +276,14 @@ class AnalysesConfig(BaseModel):
     run_pathogen_coverage: bool = True
     pathogen_coverage_csv: Path = None
     pathogen_coverage_fig: Path = None
+    # Prediction of experimental results
+    run_experimental_prediction: bool = True
+    exp_fasta_path: Path = None
+    exp_pred_dir: Path = None
+    mhc1_epitopes_path: Path = None
+    mhc2_epitopes_path: Path = None
+    experimental_prediction_csv: Path = None
+    experimental_prediction_fig: Path = None
 
     @validator("results_dir", pre=True, always=True)
     def validate_results_dir(cls, value, values):
@@ -445,4 +454,42 @@ class AnalysesConfig(BaseModel):
                 f"{results_dir}/figures/{antigen}_pathogen_coverage.svg"
             )
             return Path(pathogen_coverage_fig)
+        return Path(value)
+
+    @validator("exp_pred_dir", pre=True, always=True)
+    def validate_exp_pred_dir(cls, value, values):
+        return Path(value)
+
+    @validator("exp_fasta_path", pre=True, always=True)
+    def validate_exp_fasta_path(cls, value, values):
+        return Path(value)
+
+    @validator("mhc1_epitopes_path", pre=True, always=True)
+    def validate_mhc1_epitopes_path(cls, value, values):
+        return Path(value)
+
+    @validator("mhc2_epitopes_path", pre=True, always=True)
+    def validate_mhc2_epitopes_path(cls, value, values):
+        return Path(value)
+
+    @validator("experimental_prediction_csv", pre=True, always=True)
+    def validate_experimental_prediction_csv(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            antigen = values.get("antigen").replace(" ", "_")
+            experimental_prediction_csv = (
+                f"{results_dir}/data/{antigen}_experimental_prediction.csv"
+            )
+            return Path(experimental_prediction_csv)
+        return Path(value)
+
+    @validator("experimental_prediction_fig", pre=True, always=True)
+    def validate_experimental_prediction_fig(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            antigen = values.get("antigen").replace(" ", "_")
+            experimental_prediction_fig = (
+                f"{results_dir}/figures/{antigen}_experimental_prediction.svg"
+            )
+            return Path(experimental_prediction_fig)
         return Path(value)
