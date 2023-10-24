@@ -1768,12 +1768,14 @@ def plot_annot_cov_by_pos(
     record: GraphicRecord,
     kmer_scores_df: pd.DataFrame,
     out_path: str = "data/figures/cov_by_pos.png",
+    figsize=(12, 6),
+    height_ratios=[3, 3],
 ) -> None:
     """
     Plot the annotation + coverage scores by position
     """
     fig, (ax1, ax2) = plt.subplots(
-        2, 1, figsize=(12, 6), sharex=True, gridspec_kw={"height_ratios": [3, 3]}
+        2, 1, figsize=figsize, sharex=True, gridspec_kw={"height_ratios": height_ratios}
     )
     sns.set_theme(style="whitegrid")
     sns.set_palette("colorblind")
@@ -1782,14 +1784,7 @@ def plot_annot_cov_by_pos(
     record.plot(ax=ax1, with_ruler=False, strand_in_label_threshold=4)
 
     # Coverage
-    sns.lineplot(
-        data=kmer_scores_df,
-        x="position",
-        y="conservation_total",
-        label="Conservation (Total)",
-        ax=ax2,
-        # color="red",
-    )
+    conservation_label = "Conservation"
     if (
         "conservation_sarbeco" in kmer_scores_df.columns
         and "conservation_merbeco" in kmer_scores_df.columns
@@ -1812,18 +1807,27 @@ def plot_annot_cov_by_pos(
             color=sns.xkcd_rgb["darkish blue"],
             linestyle="dashed",
         )
+        conservation_label = "Conservation (Total)"
+    sns.lineplot(
+        data=kmer_scores_df,
+        x="position",
+        y="conservation_total",
+        label=conservation_label,
+        ax=ax2,
+        # color="red",
+    )
     sns.lineplot(
         data=kmer_scores_df,
         x="position",
         y="population_coverage_mhc1",
-        label="Population Coverage (MHC-I)",
+        label="Host Coverage (MHC-I)",
         ax=ax2,
     )
     sns.lineplot(
         data=kmer_scores_df,
         x="position",
         y="population_coverage_mhc2",
-        label="Population Coverage (MHC-II)",
+        label="Host Coverage (MHC-II)",
         ax=ax2,
     )
     # Set axis limits and labels

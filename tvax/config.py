@@ -284,6 +284,10 @@ class AnalysesConfig(BaseModel):
     mhc2_epitopes_path: Path = None
     experimental_prediction_csv: Path = None
     experimental_prediction_fig: Path = None
+    # Coverage by position
+    run_coverage_by_position: bool = False
+    gff_path: Path = None
+    coverage_by_position_fig: Path = None
 
     @validator("results_dir", pre=True, always=True)
     def validate_results_dir(cls, value, values):
@@ -492,4 +496,19 @@ class AnalysesConfig(BaseModel):
                 f"{results_dir}/figures/{antigen}_experimental_prediction.svg"
             )
             return Path(experimental_prediction_fig)
+        return Path(value)
+
+    @validator("coverage_by_position_fig", pre=True, always=True)
+    def validate_coverage_by_position_fig(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            antigen = values.get("antigen").replace(" ", "_")
+            coverage_by_position_fig = (
+                f"{results_dir}/figures/{antigen}_coverage_by_position.svg"
+            )
+            return Path(coverage_by_position_fig)
+        return Path(value)
+
+    @validator("gff_path", pre=True, always=True)
+    def validate_gff_path(cls, value, values):
         return Path(value)

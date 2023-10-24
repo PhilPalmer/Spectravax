@@ -22,6 +22,7 @@ from tvax.eval import (
 )
 from tvax.graph import build_epitope_graph, f
 from tvax.plot import (
+    plot_annot_cov_by_pos,
     plot_antigens_comparison,
     plot_binding_criteria_eval,
     plot_calibration_curves,
@@ -197,17 +198,26 @@ def run_analyses(
         config.run_population_coverage
         or config.run_pathogen_coverage
         or config.run_experimental_prediction
+        or config.run_coverage_by_position
     ):
         # TODO: Save all vaccine designs rather than computing one here
         antigen_dict = antigens_dict[config.antigen]
         for param, value in antigen_dict.items():
             params[param] = value
         kmergraph_config = EpitopeGraphConfig(**params)
-    if config.run_population_coverage or config.run_pathogen_coverage:
+    if (
+        config.run_population_coverage
+        or config.run_pathogen_coverage
+        or config.run_coverage_by_position
+    ):
         print(f"Design vaccine for {config.antigen}")
         # G = antigen_graphs[config.antigen]
         G = build_epitope_graph(kmergraph_config)
         Q = design_vaccines(G, kmergraph_config)
+    if config.run_pathogen_coverage or config.run_coverage_by_position:
+        fig, comp_df = plot_vaccine_design_pca(
+            Q, config=kmergraph_config, interactive=False, plot_type="2D"
+        )
     if config.run_population_coverage:
         print("Running population coverage...")
         generate_and_plot_population_coverage(
@@ -220,9 +230,6 @@ def run_analyses(
         )
     if config.run_pathogen_coverage:
         print("Running pathogen coverage...")
-        fig, comp_df = plot_vaccine_design_pca(
-            Q, config=kmergraph_config, interactive=False, plot_type="2D"
-        )
         generate_and_plot_pathogen_coverage(
             csv_path=config.pathogen_coverage_csv,
             svg_path=config.pathogen_coverage_fig,
@@ -243,6 +250,22 @@ def run_analyses(
             ks=kmergraph_config.k,
             mhc_alleles={"mhc1": ["H-2-Kb", "H-2-Db"], "mhc2": ["H-2-IAb"]},
             test_peptide_ids=["SARS-CoV-1", "SARS-CoV-2", "MERS-CoV"],
+        )
+    if config.run_coverage_by_position:
+        print("Running coverage by position...")
+        generate_and_plot_cov_by_pos(
+            vaccine_designs=Q,
+            epitope_graph=G,
+            comp_df=comp_df,
+            out_path=config.coverage_by_position_fig,
+            config=kmergraph_config,
+            gff_file=config.gff_path
+            figsize=(12, 6),
+            height_ratios=[1, 1],
+            # config=None,
+            # gff_file="data/input/P05777.gff",
+            # figsize=(12,4)
+            # height_ratios=[2,5]
         )
 
 
@@ -1784,9 +1807,43 @@ def generate_and_plot_exp_pred_data(
 ############################################
 
 
+def generate_and_plot_cov_by_pos(
+    vaccine_designs: list,
+    epitope_graph: nx.Graph,
+    comp_df: pd.DataFrame,
+    config: EpitopeGraphConfig,
+    gff_file: str = None,
+    out_path: str = None,
+    figsize: tuple = (12, 6),
+    height_ratios: list = [1, 1],
+):
+    record = load_annotation(
+        gff_file=gff_file,
+        colors={
+            "Domain": "blue",
+            "Region": "green",
+            "Motif": "orange",
+        },
+    )
+    kmer_scores_df = compute_cov_by_pos(
+        vaccine_designs,
+        epitope_graph,
+        config,
+        comp_df,
+        sarbeco_clades=[1, 5, 7],
+        merbeco_clades=[2, 3, 4, 6],
+    )
+    plot_annot_cov_by_pos(
+        record,
+        kmer_scores_df,
+        out_path=out_path,
+        figsize=figsize,
+        height_ratios=height_ratios,
+    )
+
+
 def load_annotation(
     gff_file: str = "data/input/P0DTC9.gff",
-    out_path: str = "data/figures/cov_by_pos.png",
     colors: dict = {
         "Domain": "blue",
         "Region": "green",
@@ -1952,11 +2009,13 @@ if __name__ == "__main__":
         "run_compare_antigens": False,
         "run_population_coverage": False,
         "run_pathogen_coverage": False,
-        "run_experimental_prediction": True,
+        "run_experimental_prediction": False,
         "exp_fasta_path": "data/mice_mhcs/NP_designs_Oct2023.fasta",
         "exp_pred_dir": "data/mice_mhcs",
         "mhc1_epitopes_path": "data/input/epitopes_mice_c57bl6_mhc1.csv",
         "mhc2_epitopes_path": "data/input/epitopes_mice_c57bl6_mhc2.csv",
+        "run_coverage_by_position": True,
+        "gff_path": "data/input/P05777.gff",
     }
     config = AnalysesConfig(**analyses_params)
     run_analyses(config, kmer_graph_params)
