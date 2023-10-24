@@ -288,6 +288,9 @@ class AnalysesConfig(BaseModel):
     run_coverage_by_position: bool = False
     gff_path: Path = None
     coverage_by_position_fig: Path = None
+    # Peptide-MHC heatmap
+    run_peptide_mhc_heatmap: bool = False
+    peptide_mhc_heatmap_fig: Path = None
 
     @validator("results_dir", pre=True, always=True)
     def validate_results_dir(cls, value, values):
@@ -511,4 +514,15 @@ class AnalysesConfig(BaseModel):
 
     @validator("gff_path", pre=True, always=True)
     def validate_gff_path(cls, value, values):
+        return Path(value)
+
+    @validator("peptide_mhc_heatmap_fig", pre=True, always=True)
+    def validate_peptide_mhc_heatmap_fig(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            antigen = values.get("antigen").replace(" ", "_")
+            peptide_mhc_heatmap_fig = (
+                f"{results_dir}/figures/{antigen}_peptide_mhc_heatmap.svg"
+            )
+            return Path(peptide_mhc_heatmap_fig)
         return Path(value)

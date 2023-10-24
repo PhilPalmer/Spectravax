@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import json
 import networkx as nx
 import numpy as np
@@ -27,6 +28,7 @@ from tvax.plot import (
     plot_binding_criteria_eval,
     plot_calibration_curves,
     plot_experimental_predictions,
+    plot_pmhc_heatmaps,
     plot_path_exp_dps,
     plot_kmer_filtering,
     plot_kmer_graphs,
@@ -79,6 +81,8 @@ def antigens_dict():
             "fasta_path": "data/input/sar_mer_nuc_protein_clustered_95.fasta",
             "results_dir": "data/results",
             "n_clusters": 7,
+            "raw_affinity_netmhc_path": "data/results/MHC_Binding/sar_mer_nuc_protein_raw_affinity_netmhc.pkl.gz",
+            "raw_affinity_netmhcii_path": "data/results/MHC_Binding/sar_mer_nuc_protein_raw_affinity_netmhcii.pkl.gz",
             "immune_scores_mhc1_path": "data/results/MHC_Binding/sar_mer_nuc_protein_immune_scores_netmhc.pkl",
             "immune_scores_mhc2_path": "data/results/MHC_Binding/sar_mer_nuc_protein_immune_scores_netmhcii.pkl",
         },
@@ -199,6 +203,7 @@ def run_analyses(
         or config.run_pathogen_coverage
         or config.run_experimental_prediction
         or config.run_coverage_by_position
+        or config.run_peptide_mhc_heatmap
     ):
         # TODO: Save all vaccine designs rather than computing one here
         antigen_dict = antigens_dict[config.antigen]
@@ -209,6 +214,7 @@ def run_analyses(
         config.run_population_coverage
         or config.run_pathogen_coverage
         or config.run_coverage_by_position
+        or config.run_peptide_mhc_heatmap
     ):
         print(f"Design vaccine for {config.antigen}")
         # G = antigen_graphs[config.antigen]
@@ -259,13 +265,21 @@ def run_analyses(
             comp_df=comp_df,
             out_path=config.coverage_by_position_fig,
             config=kmergraph_config,
-            gff_file=config.gff_path
+            gff_file=config.gff_path,
             figsize=(12, 6),
             height_ratios=[1, 1],
             # config=None,
             # gff_file="data/input/P05777.gff",
             # figsize=(12,4)
             # height_ratios=[2,5]
+        )
+    if config.run_peptide_mhc_heatmap:
+        plot_pmhc_heatmaps(
+            seq=path_to_seq(Q[0]),
+            epitope_graph=G,
+            config=kmergraph_config,
+            alleles=None,
+            out_path=config.peptide_mhc_heatmap_fig,
         )
 
 
@@ -2014,8 +2028,9 @@ if __name__ == "__main__":
         "exp_pred_dir": "data/mice_mhcs",
         "mhc1_epitopes_path": "data/input/epitopes_mice_c57bl6_mhc1.csv",
         "mhc2_epitopes_path": "data/input/epitopes_mice_c57bl6_mhc2.csv",
-        "run_coverage_by_position": True,
+        "run_coverage_by_position": False,
         "gff_path": "data/input/P05777.gff",
+        "run_peptide_mhc_heatmap": True,
     }
     config = AnalysesConfig(**analyses_params)
     run_analyses(config, kmer_graph_params)

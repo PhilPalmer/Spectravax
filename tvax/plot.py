@@ -1011,6 +1011,25 @@ def plot_path_cov(path_cov_df: pd.DataFrame):
 ##########################
 
 
+def plot_pmhc_heatmaps(seq, epitope_graph, config, alleles, out_path):
+    # Set up the grid layout
+    fig = plt.figure(figsize=(25, 40))
+    gs = GridSpec(6, 1)
+
+    axes_mhc1 = [fig.add_subplot(gs[i]) for i in range(3)]
+    axes_mhc2 = [fig.add_subplot(gs[i + 3]) for i in range(3)]
+
+    plot_mhc_heatmap(
+        seq, epitope_graph, config, alleles, mhc_type="mhc1", fig=fig, axes=axes_mhc1
+    )
+    plot_mhc_heatmap(
+        seq, epitope_graph, config, alleles, mhc_type="mhc2", fig=fig, axes=axes_mhc2
+    )
+
+    plt.tight_layout()
+    plt.savefig(out_path)
+
+
 def plot_mhc_heatmap(
     seq: str,
     epitope_graph: nx.Graph,
@@ -1020,6 +1039,8 @@ def plot_mhc_heatmap(
     binding_criteria: str = "EL-score",
     hspace: float = 0.05,
     cbar_kws: dict = {"orientation": "vertical", "shrink": 0.8, "aspect": 20},
+    fig=None,
+    axes=None,
 ):
     """
     Plot the MHC binding heatmap for a given sequence.
@@ -1120,9 +1141,9 @@ def plot_mhc_heatmap(
     colors = ["Reds", "Greens", "Blues"]
 
     # Create subplots for each loci, share the x-axis
-    fig, axes = plt.subplots(n_loci, 1, figsize=(25, 15), sharex=True)
-    # Reduce the space between the subplots on the y-axis
-    fig.subplots_adjust(hspace=hspace)
+    if fig is None and axes is None:
+        fig, axes = plt.subplots(n_loci, 1, figsize=(25, 15), sharex=True)
+        fig.subplots_adjust(hspace=hspace)
 
     # Plot a heatmap for each loci
     for i, loci in enumerate(df["loci"].unique()):
@@ -1152,11 +1173,12 @@ def plot_mhc_heatmap(
 
         # Set the title for the colorbar
         cbar_title = loci.replace("DRB1", "HLA-DRB1")
-        cbar_ax.set_title(cbar_title, position=(0.5, 1.05))
+        cbar_ax.set_title(cbar_title, position=(0.5, 1.05), fontsize=20)
+        cbar_ax.tick_params(labelsize=15)
         axes[i].tick_params(axis="both", which="both", length=0, labelsize=14)
         axes[i].set_xlabel("")
         axes[i].set_ylabel("")
-        if i == n_loci - 1:
+        if i == n_loci - 1 and mhc_type == "mhc2":
             axes[i].set_xlabel("Amino acid position", fontsize=20)
         if i == 1:
             axes[i].set_ylabel("MHC allele", fontsize=20)
