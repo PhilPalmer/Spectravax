@@ -1041,6 +1041,7 @@ def plot_mhc_heatmap(
     cbar_kws: dict = {"orientation": "vertical", "shrink": 0.8, "aspect": 20},
     fig=None,
     axes=None,
+    xticklabels: int = 20,
 ):
     """
     Plot the MHC binding heatmap for a given sequence.
@@ -1138,7 +1139,7 @@ def plot_mhc_heatmap(
 
     # Define vars
     n_loci = len(df["loci"].unique())
-    colors = ["Reds", "Greens", "Blues"]
+    colors = ["Blues", "Oranges", "Greens"]
 
     # Create subplots for each loci, share the x-axis
     if fig is None and axes is None:
@@ -1166,10 +1167,17 @@ def plot_mhc_heatmap(
                 cbar_kws=cbar_kws,
                 vmin=0,
                 vmax=1,
+                rasterized=True,
             )
             .collections[0]
             .colorbar.ax
         )
+
+        # Update x-ticks
+        max_pos = df.loc[df["loci"] == loci, "position"].max()
+        new_xticks = list(range(0, max_pos + 1, xticklabels))
+        axes[i].set_xticks(new_xticks)
+        axes[i].set_xticklabels(new_xticks, rotation=0)
 
         # Set the title for the colorbar
         cbar_title = loci.replace("DRB1", "HLA-DRB1")
