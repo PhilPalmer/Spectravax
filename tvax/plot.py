@@ -1,13 +1,16 @@
 #!/usr/bin/env python
 
+import geopandas as gpd
 import igviz as ig
 import matplotlib.axes as axes
 import matplotlib.colors as mcolors
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import networkx as nx
 import numpy as np
 import pandas as pd
+from pathlib import Path
 import seaborn as sns
 import string
 
@@ -1026,6 +1029,17 @@ def plot_pmhc_heatmaps(seq, epitope_graph, config, alleles, out_path):
         seq, epitope_graph, config, alleles, mhc_type="mhc2", fig=fig, axes=axes_mhc2
     )
 
+    # Add letters to the subplots
+    for i, ax in enumerate(axes_mhc1 + axes_mhc2):
+        ax.text(
+            -0.05,
+            1.05,
+            string.ascii_uppercase[i],
+            transform=ax.transAxes,
+            size=36,
+            weight="bold",
+        )
+
     plt.tight_layout()
     plt.savefig(out_path)
 
@@ -1399,6 +1413,202 @@ def plot_population_coverage_histogram(
             plot_single_ancestry_histogram(
                 axs[i, j], ancestry_data, ancestry, mhc_type, ancestry_colours[ancestry]
             )
+
+
+########################################################################################
+# Plot the expected number of displayed peptides E(#DPs) by country for a single antigen
+########################################################################################
+
+
+def filter_hla_groups(
+    group, loci: dict = {"HLA-A", "HLA-B", "HLA-C", "HLA-DP", "HLA-DQ", "DRB1"}
+):
+    if loci.issubset(set(group["locus_name"].unique())):
+        return group
+    else:
+        return group.head(0)
+
+
+def plot_global_distribution(
+    exp_dps_df: pd.DataFrame,
+    ax: plt.Axes,
+    mhc_type: str = "mhc1",
+    vmax: int = 24,
+    country_name_map: dict = None,
+):
+    if mhc_type == "mhc1":
+        loci = {"DRB1", "HLA-DP", "HLA-DQ"}
+    elif mhc_type == "mhc2":
+        loci = {"HLA-A", "HLA-B", "HLA-C"}
+    mhc_str = "MHC-I" if mhc_type == "mhc1" else "MHC-II"
+
+    # Load the world map
+    world = gpd.read_file(gpd.datasets.get_path("naturalearth_lowres"))
+
+    # Summing the E(#DPs) for each country
+    filtered_exp_dps_df = (
+        exp_dps_df.groupby("country")
+        .apply(filter_hla_groups, loci=loci)
+        .reset_index(drop=True)
+    )
+    country_sum_exp_dps = (
+        filtered_exp_dps_df.groupby("country")["E(#DPs)"].sum().reset_index()
+    )
+
+    # Renaming the countries to match the world map
+    country_sum_exp_dps["country"] = country_sum_exp_dps["country"].replace(
+        country_name_map
+    )
+
+    # Merge the world map with the aggregated E(#DPs) data
+    world = world.merge(
+        country_sum_exp_dps, how="left", left_on="name", right_on="country"
+    )
+
+    # Plotting
+    ax.set_facecolor("w")
+    world.boundary.plot(ax=ax, linewidth=1, edgecolor="grey")
+    world.plot(
+        column="E(#DPs)",
+        ax=ax,
+        cmap="viridis",
+        vmin=0,
+        vmax=vmax,
+        legend=True,
+        legend_kwds={
+            "label": "E(#DPs) by Country",
+            "orientation": "horizontal",
+            "shrink": 0.5,
+            "aspect": 30,
+            "pad": 0.01,
+        },
+    )
+    ax.set_title(
+        f"{mhc_str} Global Distribution of Expected Number of Displayed Peptides",
+        fontsize=16,
+        y=1.05,
+    )
+    ax.set_ylim([-60, 90])
+    ax.set_axis_off()
+
+
+def prepare_country_data(exp_dps_df: pd.DataFrame, world: pd.DataFrame):
+    grouped_exp_dps_df = (
+        exp_dps_df.groupby(["country", "locus_name"])["E(#DPs)"].sum().reset_index()
+    )
+    grouped_exp_dps_df["locus_name"] = grouped_exp_dps_df["locus_name"].replace(
+        {"DRB1": "HLA-DRB1"}
+    )
+    pivot_df = grouped_exp_dps_df.pivot(
+        index="country", columns="locus_name", values="E(#DPs)"
+    ).fillna(0)
+    pivot_df["Total"] = pivot_df.sum(axis=1)
+    pivot_df = pivot_df.merge(
+        world[["name", "pop_est"]], how="left", left_index=True, right_on="name"
+    )
+    top_countries_df = pivot_df.sort_values(by="pop_est", ascending=False).head(30)
+    top_countries_df = pd.concat(
+        [top_countries_df, pivot_df[pivot_df["name"] == "Global"]], axis=0
+    )
+    top_countries_df = (
+        top_countries_df.drop(columns="pop_est")
+        .rename(columns={"name": "country"})
+        .set_index("country")
+    )
+    top_countries_df = top_countries_df.drop(columns="Total")
+    return top_countries_df
+
+
+def prepare_country_plot_data(top_countries_df: pd.DataFrame):
+    long_df = top_countries_df.reset_index().melt(id_vars="country")
+    long_df.columns = ["country", "locus", "E(#DPs)"]
+    long_df["sort_key"] = (long_df["country"] == "Global").astype(int)
+    long_df = long_df.sort_values(by=["sort_key", "country", "locus"]).drop(
+        columns="sort_key"
+    )
+    return long_df
+
+
+def create_stacked_bar_plot(long_df: pd.DataFrame, ax: plt.Axes):
+    sns.set(style="whitegrid", palette="colorblind", font_scale=1.2)
+    palette = sns.color_palette("colorblind", n_colors=long_df["locus"].nunique())
+    color_dict = {
+        locus: color for locus, color in zip(long_df["locus"].unique(), palette)
+    }
+
+    bottom = [0] * len(long_df["country"].unique())
+    countries = long_df["country"].unique()
+    for locus, color in sorted(color_dict.items(), reverse=True):
+        data = long_df[long_df["locus"] == locus]
+        ax.bar(countries, data["E(#DPs)"], bottom=bottom, label=locus, color=color)
+        bottom = [b + d for b, d in zip(bottom, data["E(#DPs)"])]
+
+    ax.set_title(
+        "Expected Number of Displayed Peptides for The Top 30 Countries by Population Size"
+    )
+    ax.set_xlabel("Country")
+    ax.set_ylabel("E(#DPs)")
+    ax.set_xlim(-0.5, len(countries) - 0.5)
+    ax.set_xticks(range(len(countries)))
+    ax.set_xticklabels(countries, rotation=45, ha="right")
+    handles = [
+        mpatches.Patch(color=color, label=locus) for locus, color in color_dict.items()
+    ]
+    ax.legend(handles=handles, title="Locus", bbox_to_anchor=(1, 1), loc="upper left")
+    ax.set_axisbelow(True)
+    ax.yaxis.grid(color="gray")
+
+    plt.tight_layout()
+
+
+def plot_exp_dps_by_country(
+    exp_dps_df: pd.DataFrame,
+    out_path: Path,
+    country_name_mapping: dict,
+):
+    """
+    Creates the figure for the global distribution of expected number of displayed peptides
+    """
+    # Set up the figure and GridSpec layout
+    fig = plt.figure(figsize=(20, 12))
+    gs = GridSpec(2, 2, height_ratios=[3, 1], width_ratios=[1, 1])
+
+    # First Global Distribution Plot (A)
+    ax1 = fig.add_subplot(gs[0, 0])
+    plot_global_distribution(
+        exp_dps_df, ax1, mhc_type="mhc1", vmax=24, country_name_map=country_name_mapping
+    )
+
+    # Second Global Distribution Plot (B)
+    ax2 = fig.add_subplot(gs[0, 1])
+    plot_global_distribution(
+        exp_dps_df, ax2, mhc_type="mhc2", vmax=24, country_name_map=country_name_mapping
+    )
+
+    # Stacked Bar Plot (C)
+    ax3 = fig.add_subplot(gs[1, :])  # Spanning across both columns
+    world = gpd.read_file(gpd.datasets.get_path("naturalearth_lowres"))
+    top_countries_df = prepare_country_data(exp_dps_df, world)
+    long_df = prepare_country_plot_data(top_countries_df)
+    create_stacked_bar_plot(long_df, ax3)
+
+    # Add letter labels to each subplot
+    for subplot_idx, subplot_ax in enumerate([ax1, ax2, ax3]):
+        subplot_ax.text(
+            -0.05,
+            1.1,
+            string.ascii_uppercase[subplot_idx],
+            transform=subplot_ax.transAxes,
+            size=24,
+            weight="bold",
+        )
+
+    # Adjust the layout and save the figure
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=300)
+    plt.close(
+        fig
+    )  # Close the figure to avoid displaying it in non-interactive environments
 
 
 #######################

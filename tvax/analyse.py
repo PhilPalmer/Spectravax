@@ -1,5 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import geopandas as gpd
+import HLAfreq
 import json
 import networkx as nx
 import numpy as np
@@ -27,6 +29,7 @@ from tvax.plot import (
     plot_antigens_comparison,
     plot_binding_criteria_eval,
     plot_calibration_curves,
+    plot_exp_dps_by_country,
     plot_experimental_predictions,
     plot_pmhc_heatmaps,
     plot_path_exp_dps,
@@ -73,7 +76,7 @@ def antigens_dict():
     Return a dictionary of antigen names and paths to fasta files.
     """
     return {
-        "Influenza A M1": {
+        "Influenza-A M1": {
             "fasta_path": "data/results_flua_m1/Seq_Preprocessing/flua_m1.fasta",
             "results_dir": "data/results_flua_m1/",
         },
@@ -85,6 +88,12 @@ def antigens_dict():
             "raw_affinity_netmhcii_path": "data/results/MHC_Binding/sar_mer_nuc_protein_raw_affinity_netmhcii.pkl.gz",
             "immune_scores_mhc1_path": "data/results/MHC_Binding/sar_mer_nuc_protein_immune_scores_netmhc.pkl",
             "immune_scores_mhc2_path": "data/results/MHC_Binding/sar_mer_nuc_protein_immune_scores_netmhcii.pkl",
+            "weights": {
+                "frequency": 1.0,
+                "population_coverage_mhc1": 2.0,
+                "population_coverage_mhc2": 1.0,
+                "clade": 1.0,
+            },
         },
         "Coronavirinae nsp12": {
             "fasta_path": "data/input/nsp12_protein.fa",
@@ -204,6 +213,7 @@ def run_analyses(
         or config.run_experimental_prediction
         or config.run_coverage_by_position
         or config.run_peptide_mhc_heatmap
+        or config.run_exp_dps_by_country
     ):
         # TODO: Save all vaccine designs rather than computing one here
         antigen_dict = antigens_dict[config.antigen]
@@ -215,6 +225,7 @@ def run_analyses(
         or config.run_pathogen_coverage
         or config.run_coverage_by_position
         or config.run_peptide_mhc_heatmap
+        or config.run_exp_dps_by_country
     ):
         print(f"Design vaccine for {config.antigen}")
         # G = antigen_graphs[config.antigen]
@@ -280,6 +291,16 @@ def run_analyses(
             config=kmergraph_config,
             alleles=None,
             out_path=config.peptide_mhc_heatmap_fig,
+        )
+    if config.run_exp_dps_by_country:
+        print("Plotting the expected number of displayed peptides by country...")
+        generae_and_plot_exp_dps(
+            epitope_graph=G,
+            vaccine_designs=Q,
+            config=kmergraph_config,
+            exp_dps_by_country_csv=config.exp_dps_by_country_csv,
+            exp_dps_by_country_data_csv=config.exp_dps_by_country_data_csv,
+            exp_dps_by_country_fig=config.exp_dps_by_country_fig,
         )
 
 
@@ -739,9 +760,10 @@ def transform_population_data(
             "pop_cov": None,
         }
 
-        # If there are more keys, it means vaccine_coverage is present.
+        # If there are more keys, add them to the data_dict
         if len(group_keys) > 2:
-            data_dict["vaccine_coverage"] = group_keys[2]
+            last_col_name = group_cols[2]
+            data_dict[last_col_name] = group_keys[2]
 
         for n_target, pop_cov in zip(group["n_target"], exact_pop_cov):
             data_dict["n_target"] = n_target
@@ -749,6 +771,388 @@ def transform_population_data(
             transformed_data.append(data_dict.copy())
 
     return pd.DataFrame(transformed_data)
+
+
+############################################################################################
+# Computed the expected number of displayed peptides E(#DPs) by country for a single antigen
+############################################################################################
+
+
+def country_name_mapping():
+    """
+    Return a dictionary mapping HLAfreq country names to the names used in the geopandas dataset
+    """
+    return {
+        "United States": "United States of America",
+        "Macedonia": "North Macedonia",
+        "Republic of Kosovo": "Kosovo",
+        "Korea, South": "South Korea",
+        "Ivory Coast": "Côte d'Ivoire",
+        "Central African Republic": "Central African Rep.",
+        "Bosnia and Herzegovina": "Bosnia and Herz.",
+        "Congo (Kinshasa)": "Dem. Rep. Congo",
+        "Czech Republic": "Czechia",
+    }
+
+
+def preprocess_and_save_country_data(
+    countries_path: Path,
+    country_name_mapping_dict: dict = country_name_mapping(),
+):
+    """
+    Preprocess the country data and save it to a file
+    """
+    # Read country data
+    countries_df = pd.read_csv(countries_path)
+
+    # Map country names and keep only the relevant column
+    countries_df["name"] = countries_df["country"].replace(country_name_mapping_dict)
+    countries_df = countries_df[["name"]]
+
+    # Load the GeoPandas dataframe to get population data
+    world = gpd.read_file(gpd.datasets.get_path("naturalearth_lowres"))
+
+    # Merge the countries_df with the world GeoDataFrame
+    merged_df = world.merge(countries_df, on="name", how="right")
+
+    # Convert population estimates to integers, ignore errors
+    merged_df["pop_est"] = merged_df["pop_est"].astype(int, errors="ignore")
+
+    # Calculate the proportion of the regional population for each country
+    merged_df["proportion"] = merged_df["pop_est"] / merged_df["pop_est"].sum()
+
+    # Calculate the weight of each individual in the country towards the sample size
+    merged_df["individual_weight"] = merged_df["proportion"] * len(merged_df["name"])
+
+    # Export the prepared data to CSV
+    merged_df.to_csv(countries_path, index=False)
+
+    return merged_df
+
+
+def fetch_HLA_frequencies(countries: list, csv_output_path: Path):
+    """
+    Fetch the HLA frequencies for the given countries and save them to a CSV file
+    """
+    aftabs = {}
+
+    for country in countries:
+        base_url = HLAfreq.makeURL(country=country.replace(" ", "+"))
+        print(f"Getting allele frequency data for {country} using URL: {base_url}")
+        try:
+            aftab = HLAfreq.getAFdata(base_url)
+        except Exception as e:
+            print(
+                f"Could not get allele frequency data for {country} using URL: {base_url}"
+            )
+            continue
+        aftab["country"] = country
+        aftabs[country] = aftab
+
+    # Combine the dataframes
+    cafs = pd.concat(aftabs.values(), ignore_index=True)
+    cafs.to_csv(csv_output_path, index=False)
+    return cafs
+
+
+def combine_allele_frequencies(cafs_df: pd.DataFrame, countries_df: pd.DataFrame):
+    """
+    Combine the allele frequencies for the same locus within the same country
+    """
+    cafs = []
+
+    for locus in cafs_df.loci.unique():
+        locus_df = cafs_df[cafs_df.loci == locus]
+        for country in locus_df.country.unique():
+            aftab = locus_df[locus_df.country == country]
+            # Drop any incomplete studies
+            aftab = HLAfreq.only_complete(aftab)
+            # Ensure all alleles have the same resolution
+            try:
+                aftab = HLAfreq.decrease_resolution(aftab, 2)
+            except Exception as e:
+                print(f"Could not decrease resolution for {country} {locus}")
+                continue
+            # Combine studies within country
+            caf = HLAfreq.combineAF(aftab)
+            # Add country name to dataset, this is used as `datasetID` going forward
+            caf["country"] = country
+            # Save the allele frequency data
+            cafs.append(caf)
+
+    cafs_df = pd.concat(cafs, ignore_index=True)
+    cafs_df = pd.merge(cafs_df, countries_df, how="left", on="country")
+    # Sample size is multiplied by this individual weight and doubled
+    # this accounts for diploid samples from each individual
+    cafs_df["weighted_sample_size"] = (
+        cafs_df.sample_size * 2 * cafs_df.individual_weight
+    )
+
+    # Combine all country data
+    global_cafs = []
+
+    for locus in cafs_df.loci.unique():
+        locus_df = cafs_df[cafs_df.loci == locus]
+        # Combine the allele frequency data from all countries
+        caf = HLAfreq.combineAF(
+            locus_df, datasetID="country", weights="weighted_sample_size"
+        )
+        global_cafs.append(caf)
+
+    global_df = pd.concat(global_cafs, ignore_index=True)
+
+    # Add the global data to the country allele frequencies
+    global_df["country"] = "Global"
+    cafs_df = pd.concat([cafs_df, global_df], ignore_index=True)
+
+    return cafs_df
+
+
+def compute_country_pop_cov(
+    vaccine_pmhc_aff_pivot: pd.DataFrame,
+    mhc_df: pd.DataFrame,
+    n_targets: int,
+    vaccine_kmer_cons: float = None,
+):
+    """
+    Compute the population coverage for a country
+    """
+    population_coverage = 0
+
+    # Iterate over columns in vaccine_pmhc_aff_pivot
+    for allele in vaccine_pmhc_aff_pivot.columns:
+        allele_freq = mhc_df[mhc_df["allele"] == allele]["allele_freq"].values[0]
+        el_scores = vaccine_pmhc_aff_pivot[allele].values
+        if vaccine_kmer_cons is not None:
+            el_scores = el_scores * vaccine_kmer_cons
+        filter = 1 if el_scores.sum() >= n_targets else 0
+        population_coverage += allele_freq * filter
+
+    return population_coverage
+
+
+def compute_country_loci_pop_covs(
+    vaccine_pmhc_aff_pivot: pd.DataFrame,
+    mhc_df: pd.DataFrame,
+    pop_cov_dict: dict,
+    loci: list,
+    vaccine_kmer_cons: float = None,
+    mhc_type: str = "mhc1",
+):
+    """
+    Compute the population coverages for a given country and loci
+    """
+    # Get the country name
+    country = mhc_df.country.unique()[0]
+
+    # Get the locus name
+    if loci[0] in ["A", "B", "C"]:
+        locus_name = f"HLA-{loci[0]}"
+    elif loci[0][:-2] in ["DP", "DQ"]:
+        locus_name = f"HLA-{loci[0][:-2]}"
+    else:
+        locus_name = loci[0]
+
+    # Keep only data for the given loci
+    vaccine_pmhc_aff_pivot = vaccine_pmhc_aff_pivot.loc[
+        :, vaccine_pmhc_aff_pivot.columns.get_level_values("loci") == locus_name
+    ]
+
+    # Get the allele frequencies for the country
+    if loci[0] in ["A", "B", "C"]:
+        mhc_df["allele"] = "HLA-" + mhc_df["allele"].str.replace("*", "")
+    elif "DRB1" in loci:
+        mhc_df["allele"] = (
+            mhc_df["allele"]
+            .str.replace("HLA-", "")
+            .str.replace("*", "")
+            .str.replace(":", "")
+        )
+        mhc_df["allele"] = mhc_df["allele"].str.replace("DRB1", "DRB1_")
+    elif loci[0][:-2] in ["DP", "DQ"]:
+        # Combine the alleles e.g. HLA-DPA10103-DPB10101
+        mhc_df["allele"] = (
+            mhc_df["allele"]
+            .str.replace("HLA-", "")
+            .str.replace("*", "")
+            .str.replace(":", "")
+        )
+        pmhc_alleles = vaccine_pmhc_aff_pivot.columns.droplevel("loci").tolist()
+        for allele in pmhc_alleles:
+            allele_a = allele.split("-")[1]
+            allele_b = allele.split("-")[2]
+            try:
+                allele_freq_a = mhc_df[mhc_df["allele"] == allele_a][
+                    "allele_freq"
+                ].values[0]
+                allele_freq_b = mhc_df[mhc_df["allele"] == allele_b][
+                    "allele_freq"
+                ].values[0]
+                mhc_df = mhc_df.append(
+                    {
+                        "allele": allele,
+                        "allele_freq": allele_freq_a * allele_freq_b,
+                        "loci": locus_name,
+                    },
+                    ignore_index=True,
+                )
+            except IndexError:
+                # print(f"Allele {allele} not found in mhc_df")
+                continue
+        mhc_df = mhc_df[mhc_df["loci"] == locus_name]
+
+    # Keep only alleles present in both datasets
+    vaccine_pmhc_aff_pivot.columns = vaccine_pmhc_aff_pivot.columns.droplevel("loci")
+    vaccine_pmhc_aff_pivot = vaccine_pmhc_aff_pivot.loc[
+        :, vaccine_pmhc_aff_pivot.columns.isin(mhc_df.allele)
+    ]
+
+    # Compute the population coverage
+    pop_cov = 1
+    n_target = 0
+    while pop_cov > 0:
+        pop_cov = compute_country_pop_cov(
+            vaccine_pmhc_aff_pivot, mhc_df, n_target, vaccine_kmer_cons
+        )
+        n_target += 1
+        pop_cov_dict["mhc_type"].append(mhc_type)
+        pop_cov_dict["locus_name"].append(locus_name)
+        pop_cov_dict["country"].append(country)
+        pop_cov_dict["pop_cov"].append(pop_cov)
+        pop_cov_dict["n_target"].append(n_target)
+
+    return pop_cov_dict
+
+
+def compute_country_exp_dps(pop_cov_df: pd.DataFrame):
+    """
+    Compute the expected number of DPs for a country
+    """
+    exp_dps_dict = {
+        "mhc_type": [],
+        "locus_name": [],
+        "country": [],
+        "E(#DPs)": [],
+    }
+
+    pop_cov_df = transform_population_data(
+        pop_cov_df,
+        group_col="country",
+        group_cols=["country", "mhc_type", "locus_name"],
+    )
+
+    for country in pop_cov_df["country"].unique():
+        country_df = pop_cov_df[pop_cov_df["country"] == country]
+        for locus in country_df["locus_name"].unique():
+            country_df = pop_cov_df[
+                (pop_cov_df["country"] == country) & (pop_cov_df["locus_name"] == locus)
+            ]
+            count = country_df["n_target"].values
+            freq = country_df["pop_cov"].values
+            exp = (count * freq).sum()
+            exp_dps_dict["mhc_type"].append(country_df["mhc_type"].values[0])
+            exp_dps_dict["locus_name"].append(country_df["locus_name"].values[0])
+            exp_dps_dict["country"].append(country_df["country"].values[0])
+            exp_dps_dict["E(#DPs)"].append(exp)
+
+    return pd.DataFrame(exp_dps_dict)
+
+
+def compute_exp_dps_all_countries_loci(
+    cafs_df: pd.DataFrame,
+    epitope_graph: nx.Graph,
+    vaccine_designs: list,
+    config: EpitopeGraphConfig,
+):
+    """
+    Compute the expected number of DPs for all countries and loci
+    """
+    loci_dict = {
+        "mhc1": [["A"], ["B"], ["C"]],
+        "mhc2": [["DRB1"], ["DPA1", "DPB1"], ["DQA1", "DQB1"]],
+    }
+
+    pop_cov_dict = {
+        "mhc_type": [],
+        "locus_name": [],
+        "country": [],
+        "n_target": [],
+        "pop_cov": [],
+    }
+
+    # Load the peptide-MHC binding predictions
+    mhc1_raw_affinity_path = config.raw_affinity_netmhc_path
+    mhc2_raw_affinity_path = config.raw_affinity_netmhcii_path
+    mhc1_pmhc_aff_pivot = pd.read_pickle(mhc1_raw_affinity_path)
+    mhc2_pmhc_aff_pivot = pd.read_pickle(mhc2_raw_affinity_path)
+
+    # Get the vaccine k-mers
+    vaccine_seq = path_to_seq(vaccine_designs[0])
+    vaccine_kmers = seq_to_kmers(vaccine_seq, config.k, epitope_graph)
+    kmers_dict = dict(epitope_graph.nodes(data=True))
+    vaccine_kmer_cons = [kmers_dict[kmer]["frequency"] for kmer in vaccine_kmers]
+
+    # Compute the population coverage for each locus
+    for country in cafs_df["country"].unique():
+        country_df = cafs_df[cafs_df["country"] == country]
+        for mhc_type, loci_groups in loci_dict.items():
+            pmhc_aff_pivot = (
+                mhc1_pmhc_aff_pivot if mhc_type == "mhc1" else mhc2_pmhc_aff_pivot
+            )
+            vaccine_pmhc_aff_pivot = pmhc_aff_pivot.loc[vaccine_kmers]
+
+            for loci in loci_groups:
+                mhc_df = country_df[country_df["loci"].isin(loci)]
+                if mhc_df.empty:
+                    continue
+                pop_cov_dict = compute_country_loci_pop_covs(
+                    vaccine_pmhc_aff_pivot,
+                    mhc_df,
+                    pop_cov_dict,
+                    loci,
+                    vaccine_kmer_cons,
+                    mhc_type,
+                )
+
+    pop_cov_df = pd.DataFrame(pop_cov_dict)
+    exp_dps_df = compute_country_exp_dps(pop_cov_df)
+    return exp_dps_df
+
+
+def generae_and_plot_exp_dps(
+    epitope_graph: nx.Graph,
+    vaccine_designs: list,
+    config: EpitopeGraphConfig,
+    exp_dps_by_country_csv: Path,
+    exp_dps_by_country_data_csv: Path,
+    exp_dps_by_country_fig: Path,
+    country_name_mapping: dict = country_name_mapping(),
+):
+    if exp_dps_by_country_data_csv.exists():
+        countries_df = pd.read_csv(exp_dps_by_country_data_csv)
+    else:
+        countries_df = preprocess_and_save_country_data(
+            countries_path=exp_dps_by_country_data_csv
+        )
+    if exp_dps_by_country_csv.exists():
+        cafs_df = pd.read_csv(exp_dps_by_country_csv)
+    else:
+        countries_list = countries_df.country.tolist()
+        cafs_df = fetch_HLA_frequencies(countries_list, csv_path=exp_dps_by_country_csv)
+    print("countries_df:")
+    print(countries_df.head())
+    print("cafs_df:")
+    print(cafs_df.head())
+    cafs_df = combine_allele_frequencies(cafs_df, countries_df)
+    exp_dps_df = compute_exp_dps_all_countries_loci(
+        cafs_df, epitope_graph, vaccine_designs, config
+    )
+
+    plot_exp_dps_by_country(
+        exp_dps_df,
+        out_path=exp_dps_by_country_fig,
+        country_name_mapping=country_name_mapping,
+    )
 
 
 #####################################################
@@ -2007,13 +2411,14 @@ if __name__ == "__main__":
         "n_clusters": None,
         "weights": {
             "frequency": 1.0,
-            "population_coverage_mhc1": 2.0,
+            "population_coverage_mhc1": 1.0,
             "population_coverage_mhc2": 1.0,
             "clade": 1.0,
         },
         "affinity_predictors": ["netmhcpan"],
     }
     analyses_params = {
+        "antigen": "Influenza-A M1",
         "results_dir": "data/outputs",
         "run_kmer_filtering": False,
         "run_scores_distribution": False,
@@ -2030,7 +2435,10 @@ if __name__ == "__main__":
         "mhc2_epitopes_path": "data/input/epitopes_mice_c57bl6_mhc2.csv",
         "run_coverage_by_position": False,
         "gff_path": "data/input/P05777.gff",
-        "run_peptide_mhc_heatmap": True,
+        "run_peptide_mhc_heatmap": False,
+        "run_exp_dps_by_country": True,
+        "exp_dps_by_country_data_csv": "data/input/country_data.csv",
+        "exp_dps_by_country_csv": "data/input/HLA_freqs_by_country.csv",
     }
     config = AnalysesConfig(**analyses_params)
     run_analyses(config, kmer_graph_params)

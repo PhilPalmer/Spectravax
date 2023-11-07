@@ -285,12 +285,17 @@ class AnalysesConfig(BaseModel):
     experimental_prediction_csv: Path = None
     experimental_prediction_fig: Path = None
     # Coverage by position
-    run_coverage_by_position: bool = False
+    run_coverage_by_position: bool = True
     gff_path: Path = None
     coverage_by_position_fig: Path = None
     # Peptide-MHC heatmap
-    run_peptide_mhc_heatmap: bool = False
+    run_peptide_mhc_heatmap: bool = True
     peptide_mhc_heatmap_fig: Path = None
+    # Run expected number of displayed peptides E(#DPs) by country analysis
+    run_exp_dps_by_country: bool = True
+    exp_dps_by_country_data_csv: Path = None
+    exp_dps_by_country_csv: Path = None
+    exp_dps_by_country_fig: Path = None
 
     @validator("results_dir", pre=True, always=True)
     def validate_results_dir(cls, value, values):
@@ -525,4 +530,23 @@ class AnalysesConfig(BaseModel):
                 f"{results_dir}/figures/{antigen}_peptide_mhc_heatmap.svg"
             )
             return Path(peptide_mhc_heatmap_fig)
+        return Path(value)
+
+    @validator("exp_dps_by_country_data_csv", pre=True, always=True)
+    def validate_exp_dps_by_country_data_csv(cls, value, values):
+        return Path(value)
+
+    @validator("exp_dps_by_country_csv", pre=True, always=True)
+    def validate_exp_dps_by_country_csv(cls, value, values):
+        return Path(value)
+
+    @validator("exp_dps_by_country_fig", pre=True, always=True)
+    def validate_exp_dps_by_country_fig(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            antigen = values.get("antigen").replace(" ", "_")
+            exp_dps_by_country_fig = (
+                f"{results_dir}/figures/{antigen}_exp_dps_by_country.svg"
+            )
+            return Path(exp_dps_by_country_fig)
         return Path(value)
