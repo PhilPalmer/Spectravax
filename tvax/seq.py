@@ -120,11 +120,17 @@ def write_to_fasta(seqs_dict: dict, output_path: Path) -> Path:
     return Path(output_path)
 
 
-def translate_seqs(seqs_dict: dict) -> dict:
+def translate_seqs(seqs_dict: dict, remove_stop=True) -> dict:
     """
-    Translate nucleotide sequences to amino acid sequences.
+    Translate nucleotide sequences to amino acid sequences removing stop codons.
     """
-    return {seq_id: str(Seq(seq).translate()) for seq_id, seq in seqs_dict.items()}
+    if remove_stop:
+        return {
+            seq_id: str(Seq(seq).translate()).replace("*", "")
+            for seq_id, seq in seqs_dict.items()
+        }
+    else:
+        return {seq_id: str(Seq(seq).translate()) for seq_id, seq in seqs_dict.items()}
 
 
 def cluster_seqs(
@@ -185,7 +191,7 @@ def get_longest_orf(seq: str, table: int = 1):
 
     orf_list = find_orfs_with_trans(seq, table)
     if orf_list:
-        return str(max(orf_list, key=len))[:-3]
+        return str(max(orf_list, key=len))
 
     else:
         return ""
