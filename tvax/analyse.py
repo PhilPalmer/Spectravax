@@ -294,7 +294,7 @@ def run_analyses(
         )
     if config.run_exp_dps_by_country:
         print("Plotting the expected number of displayed peptides by country...")
-        generae_and_plot_exp_dps(
+        generate_and_plot_exp_dps(
             epitope_graph=G,
             vaccine_designs=Q,
             config=kmergraph_config,
@@ -1119,7 +1119,7 @@ def compute_exp_dps_all_countries_loci(
     return exp_dps_df
 
 
-def generae_and_plot_exp_dps(
+def generate_and_plot_exp_dps(
     epitope_graph: nx.Graph,
     vaccine_designs: list,
     config: EpitopeGraphConfig,
@@ -1139,10 +1139,6 @@ def generae_and_plot_exp_dps(
     else:
         countries_list = countries_df.country.tolist()
         cafs_df = fetch_HLA_frequencies(countries_list, csv_path=exp_dps_by_country_csv)
-    print("countries_df:")
-    print(countries_df.head())
-    print("cafs_df:")
-    print(cafs_df.head())
     cafs_df = combine_allele_frequencies(cafs_df, countries_df)
     exp_dps_df = compute_exp_dps_all_countries_loci(
         cafs_df, epitope_graph, vaccine_designs, config
