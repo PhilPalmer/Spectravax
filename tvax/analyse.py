@@ -510,9 +510,11 @@ def construct_antigen_graphs(
     # Create an empty dictionary to store the graphs
     antigen_graphs = {}
     # Construct k-mer graph for each antigen
+    old_params = params
     for antigen, antigen_dict in antigens_dict.items():
-        params["fasta_path"] = antigen_dict["fasta_path"]
-        params["results_dir"] = antigen_dict["results_dir"]
+        # Update all params using the antigen_dict
+        params = old_params.copy()
+        params = {**params, **antigen_dict}
         config = EpitopeGraphConfig(**params)
         epitope_graph = build_epitope_graph(config)
         antigen_graphs[antigen] = epitope_graph
@@ -595,6 +597,7 @@ def compute_n_filtered_kmers(
     }
     # Compute the metrics for each antigen
     for antigen, data in antigens_dict.items():
+        antigen = antigen.replace("Influenza-A", "Influenza A")
         n_filtered_kmers["antigen"].append(antigen)
         # Number of raw k-mers
         params["fasta_path"] = data["fasta_path"]

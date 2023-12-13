@@ -402,6 +402,8 @@ def plot_kmer_filtering(
     fig, ax = plt.subplots(figsize=(10, 6))
     sns.set_context("paper")
 
+    n_filtered_kmers_df = n_filtered_kmers_df.sort_values(by="antigen").reset_index()
+
     # Plot the bars
     sns.barplot(
         x="antigen",
