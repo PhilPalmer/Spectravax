@@ -161,7 +161,7 @@ def run_analyses(
         # TODO: Fix this step - I was getting "KeyError: 'MSDNGPQSN'" during the graph construction
         else:
             scores_dict = compute_antigen_scores(
-                params, config.scores_distribution_json
+                params, config.scores_distribution_json, antigens_dict, antigen_graphs
             )
         plot_scores_distribution(scores_dict, config.scores_distribution_fig)
     if config.run_binding_criteria:
@@ -528,6 +528,7 @@ def compute_antigen_scores(
     params: dict,
     out_path: Path,
     antigens_dict: dict = antigens_dict(),
+    antigen_graphs: dict = None,
 ) -> dict:
     """
     Compute the scores for each antigen
@@ -535,12 +536,11 @@ def compute_antigen_scores(
     # Create an empty dictionary to store the scores
     scores_dict = {}
 
-    # Compute antigen graphs
-    antigen_graphs = construct_antigen_graphs(params, antigens_dict)
-    config = EpitopeGraphConfig(**params)
-
     # Get the scores for each antigen
     for antigen, G in antigen_graphs.items():
+        params["fasta_path"] = antigens_dict[antigen]["fasta_path"]
+        params["results_dir"] = antigens_dict[antigen]["results_dir"]
+        config = EpitopeGraphConfig(**params)
         scores_dict[antigen] = {
             "f_cons": [],
             "f_mhc1": [],
@@ -554,26 +554,15 @@ def compute_antigen_scores(
             f_cons = data["frequency"]
             f_mhc1 = data["population_coverage_mhc1"]
             f_mhc2 = data["population_coverage_mhc2"]
-            f = sum(
-                [data[name] * val for name, val in config.weights if val > 0]
-            ) / sum(config.weights.dict().values())
-            w_clade = data["clade_weight"]
-            f_clade_adjusted = f * w_clade
+            f_clade = data["clade_weight"]
+            f = f_cons * (f_mhc1 + f_mhc2)
+            f_clade_adjusted = f * f_clade
             # Save the scores
             scores_dict[antigen]["f_cons"].append(f_cons)
             scores_dict[antigen]["f_mhc1"].append(f_mhc1)
             scores_dict[antigen]["f_mhc2"].append(f_mhc2)
             scores_dict[antigen]["f"].append(f)
             scores_dict[antigen]["f_clade_adjusted"].append(f_clade_adjusted)
-        # Min-max scale the scores
-        minmax_scaler = MinMaxScaler()
-        scores_dict[antigen]["f_scaled"] = (
-            minmax_scaler.fit_transform(
-                np.array(scores_dict[antigen]["f_clade_adjusted"]).reshape(-1, 1)
-            )
-            .reshape(-1)
-            .tolist()
-        )
     # Save the scores to JSON
     with open(out_path, "w") as f:
         json.dump(scores_dict, f)
@@ -630,6 +619,9 @@ def compute_n_filtered_kmers(
 
     # Create a dataframe
     n_filtered_kmers_df = pd.DataFrame(n_filtered_kmers)
+
+    # Sort by antigen
+    n_filtered_kmers_df = n_filtered_kmers_df.sort_values(by="antigen")
 
     return n_filtered_kmers_df
 

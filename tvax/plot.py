@@ -335,58 +335,123 @@ def plot_scores(
 def plot_scores_distribution(
     scores_dict: dict, out_path: str = "data/figures/scores_distribution.svg"
 ) -> None:
-    df = pd.DataFrame(scores_dict)
-    score_names = {
-        "f_cons": "Conservation score ($f_{cons}$)",
-        "f_mhc1": "MHC-I host coverage score ($f_{mhc1}$)",
-        "f_mhc2": "MHC-II host coverage score ($f_{mhc2}$)",
-        "f": "Total weighted score ($f$)",
-        "f_clade_adjusted": "Clade adjusted score ($f_{clade\_adjusted}$)",
-        "f_scaled": "Scaled score ($f_{scaled}$)",
-    }
-
-    # Set seaborn theme and style
-    sns.set_theme(style="whitegrid")
-    sns.set_palette("colorblind")
-
-    # Create subplots
-    fig, axes = plt.subplots(
-        nrows=len(df.index), ncols=1, figsize=(10, 15), sharex=False, sharey=False
-    )
+    """
+    Plot the distribution of scores for each score in the scores dictionary
+    """
 
     # Define a function to generate x values for the KDE plot
     def _generate_x(data, num_points=1000):
         return np.linspace(min(data), max(data), num_points)
 
-    # Iterate over each score (row in the DataFrame)
-    for row, score in enumerate(df.index):
-        # Iterate over each antigen (column in the DataFrame)
-        for antigen in df.columns:
-            # Get data
+    # Set seaborn theme and style
+    sns.set_theme(style="white", rc={"axes.facecolor": (0, 0, 0, 0)})
+
+    # Sort the dataframe by the antigen name
+    for antigen, scores in scores_dict.items():
+        del scores["f_scaled"]
+    df = pd.DataFrame(scores_dict)
+    df = df.sort_index(axis=1)
+
+    score_names = {
+        "f_cons": "Pathogen coverage ($c_{path}$)",
+        "f_mhc1": "MHC-I host coverage ($c_{mhc1}$)",
+        "f_mhc2": "MHC-II host coverage ($c_{mhc2}$)",
+        "f": "Coverage ($c$)",
+        "f_clade_adjusted": "Clade coverage ($c_{clade}$)",
+    }
+
+    # Determine the number of unique scores and antigens
+    unique_scores = df.index.unique()
+    unique_antigens = sorted(df.columns.unique())
+    colors = sns.color_palette("colorblind", len(unique_antigens))
+    antigen_color_mapping = dict(zip(unique_antigens, colors))
+
+    # Create a figure with subplots
+    fig, axes = plt.subplots(
+        len(unique_scores), 1, figsize=(10, 2 * len(unique_scores)), sharex=False
+    )
+
+    # Flatten the axes array for easy indexing if necessary
+    if len(unique_scores) == 1:
+        axes = [axes]
+
+    # Initialize a dictionary to hold the maximum count for each score
+    offsets_per_score = {}
+
+    # First, determine the maximum count for each score
+    for score in unique_scores:
+        max_count = 0
+        for antigen in unique_antigens:
             data = df.loc[score, antigen]
-            # Compute KDE
-            kde = stats.gaussian_kde(data)
-            # Generate x values
             x_values = _generate_x(data)
-            # Compute density values
+            kde = stats.gaussian_kde(data)
             density = kde(x_values)
-            # Compute the width of the interval between x-values
-            dx = x_values[1] - x_values[0]
-            # Convert density to count
-            count = density * dx * len(data)
-            # Plot count
-            axes[row].plot(x_values, count, label=antigen)
-            axes[row].fill_between(x_values, count, alpha=0.5)
+            # count = density * (x_values[1] - x_values[0]) * len(data)
+            count = density
+            max_count = max(max_count, max(count))
+        offsets_per_score[score] = max_count * 0.75
 
-        # Set title, labels and x-limits
-        # axes[row].ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
-        axes[row].set_xlabel(score_names.get(score, score))
-        axes[row].set_ylabel("Number of k-mers")
-        axes[row].legend()
-        axes[row].set_xlim([0, 1])
+    # Now plot the KDEs using the maximum count for each score as the fixed offset
+    for row, score in enumerate(unique_scores):
+        ax = axes[row]  # Get the axis for the current score
+        fixed_offset = offsets_per_score[score]
 
-    # Save the plot
+        # Initialize the offset for the stacked KDE plots
+        offset = 0
+
+        for antigen in list(reversed(unique_antigens)):
+            data = df.loc[score, antigen]
+            x_values = _generate_x(data)
+            kde = stats.gaussian_kde(data)
+            density = kde(x_values)
+            count = density
+            # count = density * (x_values[1] - x_values[0]) * len(data)
+
+            color = antigen_color_mapping[antigen]
+
+            # Plot with vertical offset
+            ax.fill_between(x_values, count + offset, offset, alpha=0.5, color=color)
+            ax.plot(x_values, count + offset, label=antigen, color=color)
+
+            # Increase the offset by the fixed amount for the next plot
+            offset += fixed_offset
+
+        # Customize the axes
+        ax.set_xlabel(score_names.get(score, score), fontsize=14)
+
+        # Despine
+        sns.despine(ax=ax, left=True, top=True, right=True)
+
+    # Adjust layout
     plt.tight_layout()
+
+    # Set a common Y-label
+    fig.text(0.05, 0.5, "Density", va="center", rotation="vertical", fontsize=14)
+
+    # Turn off the y-axis ticks
+    plt.setp(axes, yticks=[])
+
+    # Create an overall legend for the figure
+    handles, labels = ax.get_legend_handles_labels()
+    sorted_handles_labels = sorted(
+        zip(handles, labels), key=lambda x: unique_antigens.index(x[1])
+    )
+    sorted_handles, sorted_labels = zip(*sorted_handles_labels)
+    fig.legend(
+        sorted_handles,
+        sorted_labels,
+        loc="center right",
+        borderaxespad=0.1,
+        title="Antigens",
+        fontsize=12,
+        frameon=True,
+        facecolor="white",
+    )
+
+    # Adjust the figure to make space for the legend
+    plt.subplots_adjust(right=0.75)
+
+    # Show the plot
     plt.savefig(out_path)
 
 
