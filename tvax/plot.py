@@ -43,8 +43,8 @@ def plot_kmer_graph(
     score: str = "score",
     score_min: float = 0,
     score_max: float = 1,
-    colour_palette: str = "viridis",
-    jitter_amount: float = 0.02,
+    colour_palette: str = "#440154",  # "viridis",
+    jitter_amount: float = 0,  # 0.02,
     path_edge_colour: str = "red",
     edge_colour: str = "#BFBFBF",
     node_size: int = 15,
@@ -58,9 +58,12 @@ def plot_kmer_graph(
     # Compute necessary variables
     scores = nx.get_node_attributes(G, score)
     score_values = scores.values()
-    cmap = sns.color_palette(colour_palette, as_cmap=True)
-    norm = mcolors.Normalize(vmin=score_min, vmax=score_max)
-    node_color = [cmap(norm(score)) for score in score_values]
+    if colour_palette.startswith("#"):
+        node_color = colour_palette
+    else:
+        cmap = sns.color_palette(colour_palette, as_cmap=True)
+        norm = mcolors.Normalize(vmin=score_min, vmax=score_max)
+        node_color = [cmap(norm(score)) for score in score_values]
 
     # Position of the nodes with jitter
     pos = nx.get_node_attributes(G, "pos")
@@ -123,30 +126,50 @@ def plot_kmer_graph(
     if with_labels:
         path_nodes = sum(paths, [])
         for i, node in enumerate(path_nodes):
-            # offset = 0.03 if i % 2 == 0 else -0.03
-            plt.text(pos[node][0], pos[node][1], node, fontsize=10, ha="center")
+            if xlim is not None:
+                if pos[node][0] < xlim[0] + 2 or pos[node][0] > xlim[1] - 1:
+                    continue
+            if pos[node][0] == 38:
+                x_offset = -1
+            if pos[node][0] == 40:
+                x_offset = 1
+            else:
+                x_offset = 0
+            y_offset = 0.2 if i % 2 != 0 else -0.5
+            plt.text(
+                pos[node][0] + x_offset,
+                pos[node][1] + y_offset,
+                node,
+                ha="center",
+                fontsize=10,
+            )
 
     # Set plot properties
     if xlim == None:
         ax.set_xlim([-0.1, max_pos])
     else:
         ax.set_xlim(xlim)
-    # ax.set_ylim(ylim)
+    ax.set_ylim(ylim)
 
     ax.spines.right.set_visible(False)
     ax.spines.top.set_visible(False)
     ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
     ax.tick_params(axis="both", which="major", labelsize=14)
     ax.set_xlabel("Approximate K-mer Position", fontsize=18)
-    ax.set_ylabel("K-mer Score", fontsize=18)
+    ax.set_ylabel("Coverage (%)", fontsize=18)
 
     # Only show whole numbers on the x-axis
     ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
 
+    # Rasterise the plot for a smaller file size
+    ax.set_rasterized(True)
+
     # Add a colorbar to illustrate the score
-    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-    sm.set_array([])
-    fig.colorbar(sm, ax=ax, orientation="vertical")
+    if not colour_palette.startswith("#"):
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        fig.colorbar(sm, ax=ax, orientation="vertical")
+
     return fig
 
 
@@ -156,20 +179,51 @@ def plot_kmer_graphs(
     out_path: str,
     fig_size: tuple = (16, 16),
     xlim1: tuple = None,
-    ylim1: tuple = ([-0.03, 1.05]),
-    xlim2: tuple = ([180, 200]),
-    ylim2: tuple = ([-0.03, 0.3]),
+    ylim1: tuple = ([-3, 60]),
+    xlim2: tuple = ([30, 50]),
+    ylim2: tuple = ([-1, 15]),
+    recompute_scores: bool = (False,),
 ) -> None:
     """
     Plot two k-mer graphs with different x and y limits
     """
+    if recompute_scores:
+        kmers_dict = dict(G.nodes(data=True))
+        for kmer in kmers_dict:
+            f_cons = kmers_dict[kmer]["frequency"]
+            f_mhc1 = kmers_dict[kmer]["population_coverage_mhc1"]
+            f_mhc2 = kmers_dict[kmer]["population_coverage_mhc2"]
+            kmers_dict[kmer]["score"] = f_cons * (f_mhc1 + f_mhc2) * 100
+
     # Create the figure
     sns.set_style("whitegrid")
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=fig_size)
 
     # Plot the graphs
-    fig1 = plot_kmer_graph(G, paths, fig=fig, ax=ax1, xlim=xlim1, ylim=ylim1)
-    fig2 = plot_kmer_graph(G, paths, fig=fig, ax=ax2, xlim=xlim2, ylim=ylim2)
+    fig1 = plot_kmer_graph(
+        G, paths, fig=fig, ax=ax1, xlim=xlim1, ylim=ylim1, jitter_amount=0
+    )
+    fig2 = plot_kmer_graph(
+        G,
+        paths,
+        fig=fig,
+        ax=ax2,
+        xlim=xlim2,
+        ylim=ylim2,
+        with_labels=True,
+        jitter_amount=0,
+    )
+
+    # Add letter labels to each subplot
+    for subplot_idx, subplot_ax in enumerate([ax1, ax2]):
+        subplot_ax.text(
+            -0.05,
+            1.05,
+            string.ascii_uppercase[subplot_idx],
+            transform=subplot_ax.transAxes,
+            size=28,
+            weight="bold",
+        )
 
     # Save fig
     plt.savefig(out_path, bbox_inches="tight")

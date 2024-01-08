@@ -178,13 +178,14 @@ def run_analyses(
         )
     if config.run_kmer_graphs:
         print("Running k-mer graphs...")
-        antigen_dict = antigens_dict[config.kmer_graph_antigen]
-        params["fasta_path"] = antigen_dict["fasta_path"]
-        params["results_dir"] = antigen_dict["results_dir"]
-        kmergraph_config = EpitopeGraphConfig(**params)
         G = antigen_graphs[config.kmer_graph_antigen]
+        antigen_params = params.copy()
+        antigen_params = {**antigen_params, **antigens_dict[config.kmer_graph_antigen]}
+        antigen_params["equalise_clades"] = False
+        # antigen_params["n_clusters"] = 8
+        kmergraph_config = EpitopeGraphConfig(**antigen_params)
         Q = design_vaccines(G, kmergraph_config)
-        plot_kmer_graphs(G, Q, config.kmer_graphs_fig)
+        plot_kmer_graphs(G, Q, config.kmer_graphs_fig, recompute_scores=True)
     if config.run_compare_antigens:
         print("Comparing antigens...")
         params["equalise_clades"] = True
