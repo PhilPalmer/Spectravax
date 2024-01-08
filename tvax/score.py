@@ -112,6 +112,7 @@ def add_population_coverage(
     )
     hap_freq, average_frequency = load_haplotypes(hap_freq_path)
     overlap_haplotypes = load_overlap(peptides, hap_freq, config, mhc_type)
+    use_probabilities = True if config.n_target else False
 
     # Calculate and save the population coverage for each peptide
     for e in kmers_dict:
@@ -120,7 +121,7 @@ def add_population_coverage(
             average_frequency,
             config.n_target,
             [e],
-            use_probabilities=False,
+            use_probabilities=use_probabilities,
         )
 
     return kmers_dict
@@ -446,7 +447,10 @@ def optivax_robust(
         cons = 1 if kmers_dict is None else kmers_dict[pept]["frequency"]
         total_overlays = total_overlays + np.array(over.loc[pept, :]) * cons
 
-    filtered_overlays = _my_filter(total_overlays, thresh)
+    if use_probabilities:
+        filtered_overlays = total_overlays
+    else:
+        filtered_overlays = _my_filter(total_overlays, thresh)
 
     return np.sum(filtered_overlays * np.array(hap))
 
