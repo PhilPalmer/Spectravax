@@ -15,6 +15,7 @@ import subprocess
 from Bio import SeqIO
 from dna_features_viewer import GraphicFeature, GraphicRecord
 from sklearn.preprocessing import MinMaxScaler
+from tqdm import tqdm
 from tvax.config import AnalysesConfig, EpitopeGraphConfig, Weights
 from tvax.design import design_vaccines
 from tvax.eval import (
@@ -57,6 +58,8 @@ from tvax.seq import (
     load_fasta,
     path_to_seq,
     seq_to_kmers,
+    load_seqs_from_fasta,
+    fasta_to_peptides_dict,
 )
 from typing import Tuple
 
@@ -140,6 +143,7 @@ def run_analyses(
         or config.run_scores_distribution
         or config.run_compare_antigens
         or config.run_population_coverage
+        or config.run_coverage_comparison
     ):
         if config.antigen_graphs_pkl.exists():
             print("Loading antigen graphs from pickle file")
@@ -188,7 +192,6 @@ def run_analyses(
         plot_kmer_graphs(G, Q, config.kmer_graphs_fig, recompute_scores=True)
     if config.run_compare_antigens:
         print("Comparing antigens...")
-        params["equalise_clades"] = True
         path_cov_df, pop_cov_df = compare_antigens(
             params,
             antigens_dict,
@@ -215,6 +218,7 @@ def run_analyses(
         or config.run_coverage_by_position
         or config.run_peptide_mhc_heatmap
         or config.run_exp_dps_by_country
+        or config.run_coverage_comparison
     ):
         # TODO: Save all vaccine designs rather than computing one here
         antigen_dict = antigens_dict[config.antigen]
@@ -227,10 +231,17 @@ def run_analyses(
         or config.run_coverage_by_position
         or config.run_peptide_mhc_heatmap
         or config.run_exp_dps_by_country
+        or config.run_coverage_comparison
     ):
         print(f"Design vaccine for {config.antigen}")
-        # G = antigen_graphs[config.antigen]
-        G = build_epitope_graph(kmergraph_config)
+        if config.antigen_graphs_pkl.exists():
+            print("Loading antigen graphs from pickle file")
+            with open(config.antigen_graphs_pkl, "rb") as file:
+                antigen_graphs = pickle.load(file)
+                G = antigen_graphs[config.antigen]
+        else:
+            print("Constructing antigen graphs")
+            G = build_epitope_graph(kmergraph_config)
         Q = design_vaccines(G, kmergraph_config)
     if config.run_pathogen_coverage or config.run_coverage_by_position:
         fig, comp_df = plot_vaccine_design_pca(
@@ -255,6 +266,16 @@ def run_analyses(
             comp_df=comp_df,
             vaccine_designs=Q,
             epitope_graph=G,
+        )
+    if config.run_coverage_comparison:
+        print("Running coverage comparison...")
+        generate_and_plot_coverage_comparison(
+            fasta_path=kmergraph_config.fasta_path,
+            exp_fasta_path=config.exp_fasta_path,
+            config=kmergraph_config,
+            kmers_dict=dict(G.nodes(data=True)),
+            csv_path=config.coverage_comparison_csv,
+            out_path=config.coverage_comparison_fig,
         )
     if config.run_experimental_prediction:
         print("Running prediction of experimental results...")
@@ -1906,16 +1927,148 @@ def compare_citvax_methods(
     plot_pop_cov_lineplot(pop_cov_df, mhc_type="mhc2", hue="method")
 
 
+######################################################
+# Compare the coverage of antigens of the same protein
+######################################################
+
+
+def compute_exp_dps_cov_comparison(path_cov_df: pd.DataFrame):
+    """
+    Compute the expected number of DPs for each experimental group and each pathogen in the target sequences
+    """
+    # Convert dataframe from >= n target -> == n target format
+    # TODO: Refactor this function to make it more general
+    path_cov_df = transform_population_data(
+        path_cov_df,
+        group_col="exp_id",
+        group_cols=["exp_id", "mhc_type", "target_id"],
+    )
+
+    exp_dps_dict = {
+        "exp_id": [],
+        "target_id": [],
+        "mhc_type": [],
+        "E(#DPs)": [],
+    }
+
+    for mhc_type in path_cov_df["mhc_type"].unique():
+        for exp_id in path_cov_df["exp_id"].unique():
+            for target_id in path_cov_df["target_id"].unique():
+                exp_df = path_cov_df[
+                    (path_cov_df["exp_id"] == exp_id)
+                    & (path_cov_df["target_id"] == target_id)
+                    & (path_cov_df["mhc_type"] == mhc_type)
+                ]
+                count = exp_df["n_target"].values
+                freq = exp_df["pop_cov"].values
+                exp = (count * freq).sum()
+                exp_dps_dict["exp_id"].append(exp_df["exp_id"].values[0])
+                exp_dps_dict["target_id"].append(exp_df["target_id"].values[0])
+                exp_dps_dict["mhc_type"].append(exp_df["mhc_type"].values[0])
+                exp_dps_dict["E(#DPs)"].append(exp)
+
+    return pd.DataFrame(exp_dps_dict)
+
+
+def generate_and_plot_coverage_comparison(
+    fasta_path: Path,
+    exp_fasta_path: Path,
+    config: EpitopeGraphConfig,
+    kmers_dict: dict,
+    out_path: Path,
+    csv_path: Path,
+    mhc_types: list = ["mhc1", "mhc2"],
+):
+    """ """
+    # Create a dict to store the results
+    path_cov_dict = {
+        "exp_id": [],
+        "target_id": [],
+        "mhc_type": [],
+        "n_target": [],
+        "pop_cov": [],
+    }
+
+    # Load k-mers for the experimental groups and the target sequences
+    exp_peptides_dict = fasta_to_peptides_dict(exp_fasta_path, config.k)
+    target_peptides_dict = fasta_to_peptides_dict(fasta_path, config.k)
+    target_peptides_dict["all"] = [k for k in kmers_dict.keys()]
+
+    # Load the k-mer EL-scores for MHC-I and MHC-II to compute the population coverage
+    hap_freq_mhc1, average_frequency_mhc1 = load_haplotypes(config.hap_freq_mhc1_path)
+    overlap_haplotypes_mhc1 = load_overlap(None, hap_freq_mhc1, config, "mhc1")
+    hap_freq_mhc2, average_frequency_mhc2 = load_haplotypes(config.hap_freq_mhc2_path)
+    overlap_haplotypes_mhc2 = load_overlap(None, hap_freq_mhc2, config, "mhc2")
+
+    # For each experimental group and each target sequence, calculate the E(#DPs)
+    for exp_id, exp_peptides in tqdm(exp_peptides_dict.items()):
+        for mhc_type in mhc_types:
+            if mhc_type == "mhc1":
+                overlap_haplotypes = overlap_haplotypes_mhc1.copy()
+                average_frequency = average_frequency_mhc1.copy()
+            else:
+                overlap_haplotypes = overlap_haplotypes_mhc2.copy()
+                average_frequency = average_frequency_mhc2.copy()
+            # Get the k-mers with EL-scores
+            peptides = overlap_haplotypes.index.to_list()
+            # Use tqdm to show a progress bar
+            for target_id, target_peptides in tqdm(target_peptides_dict.items()):
+                # TODO: Compute EL-scores for the new 15-mer peptides
+                # Get peptides in common between the experimental group, the target sequences and those with EL-scores
+                if target_id == "all":
+                    common_peptides = [
+                        m for m in exp_peptides if m in kmers_dict.keys()
+                    ]
+                    kmers_cons = kmers_dict
+                else:
+                    common_peptides = (
+                        set(exp_peptides)
+                        .intersection(set(peptides))
+                        .intersection(set(target_peptides))
+                    )
+                    kmers_cons = None
+                # TODO: Compute the population coverage over the entire range of n targets
+                pop_cov = 1
+                n_target = 0
+                while pop_cov > 0:
+                    pop_cov = optivax_robust(
+                        overlap_haplotypes,
+                        average_frequency,
+                        n_target,
+                        list(common_peptides),
+                        kmers_cons,
+                    )
+                    # Store the results
+                    path_cov_dict["exp_id"].append(exp_id)
+                    path_cov_dict["target_id"].append(target_id)
+                    path_cov_dict["mhc_type"].append(mhc_type)
+                    path_cov_dict["n_target"].append(n_target)
+                    path_cov_dict["pop_cov"].append(pop_cov)
+                    n_target += 1
+
+    # Generate the dataframes
+    path_cov_df = pd.DataFrame(path_cov_dict)
+    pop_cov_df = path_cov_df.copy()
+    pop_cov_df = pop_cov_df[pop_cov_df["target_id"] == "all"]
+    pop_cov_df["pop_cov"] = pop_cov_df["pop_cov"] * 100
+    # Drop the "all" target from the path coverage dataframe
+    path_cov_df = path_cov_df[path_cov_df["target_id"] != "all"]
+    exp_dps_df = compute_exp_dps_cov_comparison(path_cov_df)
+    df = compute_exp_dps_cov_comparison(pop_cov_df)  # .to_latex()
+    df = df.drop(columns=["target_id"])
+    df.to_csv(csv_path, index=False)
+
+    # Save plot
+    plot_antigens_comparison(
+        exp_dps_df,
+        pop_cov_df,
+        out_path,
+    )
+
+
 ##########################################################
 # Predict the number of hits for sequences in a FASTA file
 ##########################################################
-
-
-def load_seqs_from_fasta(fasta_path):
-    """
-    Load sequences from a FASTA file.
-    """
-    return list(SeqIO.parse(fasta_path, "fasta"))
 
 
 def generate_all_peptides(peptides_dict, peptides_path):
@@ -2428,9 +2581,10 @@ if __name__ == "__main__":
         "run_coverage_by_position": False,
         "gff_path": "data/input/P05777.gff",
         "run_peptide_mhc_heatmap": False,
-        "run_exp_dps_by_country": True,
+        "run_exp_dps_by_country": False,
         "exp_dps_by_country_data_csv": "data/input/country_data.csv",
         "exp_dps_by_country_csv": "data/input/HLA_freqs_by_country.csv",
+        "run_coverage_comparison": True,
     }
     config = AnalysesConfig(**analyses_params)
     run_analyses(config, kmer_graph_params)

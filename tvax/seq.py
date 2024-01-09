@@ -79,6 +79,24 @@ def preprocess_seqs(
     return fasta_path
 
 
+def load_seqs_from_fasta(fasta_path):
+    """
+    Load sequences from a FASTA file.
+    """
+    return list(SeqIO.parse(fasta_path, "fasta"))
+
+
+def fasta_to_peptides_dict(fasta_path: Path, ks: list = [9, 15]):
+    """
+    Load a FASTA file and return a dictionary of peptides
+    """
+    seq_records = load_seqs_from_fasta(fasta_path)
+    peptides_dict = {
+        record.id: kmerise_simple(str(record.seq), ks) for record in seq_records
+    }
+    return peptides_dict
+
+
 def clean_fasta_file(fasta_nt_path: Path) -> None:
     """
     Clean the FASTA file by replacing invalid characters.

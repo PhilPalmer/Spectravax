@@ -296,6 +296,10 @@ class AnalysesConfig(BaseModel):
     exp_dps_by_country_data_csv: Path = None
     exp_dps_by_country_csv: Path = None
     exp_dps_by_country_fig: Path = None
+    # Coverage comparison
+    run_coverage_comparison: bool = True
+    coverage_comparison_csv: Path = None
+    coverage_comparison_fig: Path = None
 
     @validator("results_dir", pre=True, always=True)
     def validate_results_dir(cls, value, values):
@@ -549,4 +553,26 @@ class AnalysesConfig(BaseModel):
                 f"{results_dir}/figures/{antigen}_exp_dps_by_country.svg"
             )
             return Path(exp_dps_by_country_fig)
+        return Path(value)
+
+    @validator("coverage_comparison_csv", pre=True, always=True)
+    def validate_coverage_comparison_csv(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            antigen = values.get("antigen").replace(" ", "_")
+            coverage_comparison_csv = (
+                f"{results_dir}/data/{antigen}_coverage_comparison.csv"
+            )
+            return Path(coverage_comparison_csv)
+        return Path(value)
+
+    @validator("coverage_comparison_fig", pre=True, always=True)
+    def validate_coverage_comparison_fig(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            antigen = values.get("antigen").replace(" ", "_")
+            coverage_comparison_fig = (
+                f"{results_dir}/figures/{antigen}_coverage_comparison.svg"
+            )
+            return Path(coverage_comparison_fig)
         return Path(value)

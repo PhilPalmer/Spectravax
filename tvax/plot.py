@@ -1098,6 +1098,71 @@ def plot_path_exp_dps(
         plt.savefig(svg_path)
 
 
+# TODO: Combine and generalise these two functions
+def plot_path_exp_dps_cov_comparison(
+    exp_dps_df: pd.DataFrame, mhc_type: str = "mhc1", ax=None, legend=False, ymax=None
+):
+    """
+    Plot the expected number of DPs for each experimental group and each pathogen in the target sequences
+    """
+    exp_dps_df = exp_dps_df[exp_dps_df["mhc_type"] == mhc_type]
+
+    # Plot the results as a violin plot
+    sns.set(style="whitegrid", palette="colorblind", font_scale=1.2)
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Plot the violin plot
+    sns.violinplot(
+        x="exp_id",
+        y="E(#DPs)",
+        # hue="exp_id",
+        data=exp_dps_df,
+        palette="colorblind",
+        ax=ax,
+        inner="quartile",
+        linewidth=1,
+        cut=0,
+    )
+    # Add the data points
+    sns.swarmplot(
+        x="exp_id",
+        y="E(#DPs)",
+        hue="exp_id",
+        data=exp_dps_df,
+        palette="colorblind",
+        ax=ax,
+        dodge=False,
+        size=6,
+        edgecolor="black",
+        linewidth=0.5,
+        alpha=0.7,
+    )
+    ax.set_xlabel("Experimental group", fontsize=18)
+    ax.set_ylabel("Expected Number of Displayed Peptides", fontsize=18)
+    ax.tick_params(axis="both", which="major", labelsize=16)
+    if ymax is not None:
+        ax.set_ylim(0, ymax)
+    if legend:
+        palette = sns.color_palette("colorblind", len(exp_dps_df["exp_id"].unique()))
+        handles = [
+            plt.Line2D(
+                [0], [0], marker="o", color=palette[i], label=label, linestyle=""
+            )
+            for i, label in enumerate(exp_dps_df["exp_id"].unique())
+        ]
+        ax.legend(
+            handles,
+            loc="upper left",
+            title="Experimental group",
+            bbox_to_anchor=(1.05, 1),
+        )
+    else:
+        ax.get_legend().remove()
+    fig = ax.get_figure()
+    fig.tight_layout()
+
+
 def plot_path_cov(path_cov_df: pd.DataFrame):
     """
     Plot the pathogen coverage for each target input sequence
@@ -1832,40 +1897,63 @@ def plot_parameter_sweep_surface(
 
 
 def plot_antigens_comparison(
-    path_cov_df: pd.DataFrame,
+    exp_dps_df: pd.DataFrame,
     pop_cov_df: pd.DataFrame,
     out_path: str,
-    fig_size: tuple = (16, 24),
+    fig_size: tuple = (20, 12),
 ) -> None:
     """
-    Compare the pathogen and population coverage for different antigens.
+    Compare the coverage for different antigens.
     """
-    # Create the figure
-    sns.set_style("whitegrid")
-    gridspec = dict(hspace=0.3, height_ratios=[1, 0, 1, 1])
-    fig, (ax1, ax4, ax2, ax3) = plt.subplots(
-        nrows=4, ncols=1, figsize=fig_size, gridspec_kw=gridspec
+    # Set up the figure and GridSpec layout
+    sns.set(style="whitegrid", palette="colorblind", font_scale=1.2)
+    fig = plt.figure(figsize=fig_size)
+    gs = GridSpec(2, 2, height_ratios=[1, 1], width_ratios=[1, 1])
+
+    ax1 = fig.add_subplot(gs[0, 0])
+    plot_path_exp_dps_cov_comparison(exp_dps_df, mhc_type="mhc1", ax=ax1, ymax=50)
+
+    ax2 = fig.add_subplot(gs[0, 1])
+    plot_path_exp_dps_cov_comparison(exp_dps_df, mhc_type="mhc2", ax=ax2, ymax=50)
+
+    ax3 = fig.add_subplot(gs[1, 0])
+    plot_pop_cov_lineplot(pop_cov_df, "mhc1", hue="exp_id", ax=ax3, xmax=16)
+
+    ax4 = fig.add_subplot(gs[1, 1])
+    plot_pop_cov_lineplot(pop_cov_df, "mhc2", hue="exp_id", ax=ax4, xmax=16)
+
+    # Add one legend for all subplots to the right of the subplots
+    handles, labels = ax1.get_legend_handles_labels()
+    # Get the first handles and labels
+    # handles = handles[: len(handles) // 2]
+    # labels = labels[: len(labels) // 2]
+    fig.legend(
+        handles,
+        labels,
+        title="Experimental group",
+        loc="upper left",
+        bbox_to_anchor=(1, 0.6),
+        title_fontsize=18,
+        fontsize=16,
     )
-    ax4.set_visible(False)
 
-    # Plot the graphs
-    fig1 = plot_path_cov_swarmplot(path_cov_df, fig=fig, ax=ax1)
-    fig2 = plot_pop_cov_lineplot(pop_cov_df, mhc_type="mhc1", fig=fig, ax=ax2)
-    fig3 = plot_pop_cov_lineplot(pop_cov_df, mhc_type="mhc2", fig=fig, ax=ax3)
+    # Add more space between the subplots
+    fig.subplots_adjust(hspace=0.3, wspace=0.2)
 
-    # Annotate the subplots with letters
-    for i, ax in enumerate([ax1, ax2, ax3]):
-        ax.text(
+    # Label each subplot with a letter
+    all_axes = [ax1, ax2, ax3, ax4]
+    for subplot_idx, subplot_ax in enumerate(all_axes):
+        subplot_ax.text(
             -0.05,
-            1.1,
-            string.ascii_uppercase[i],
-            transform=ax.transAxes,
-            size=24,
+            1.05,
+            string.ascii_uppercase[subplot_idx],
+            transform=subplot_ax.transAxes,
+            size=28,
             weight="bold",
         )
 
-    # Save fig
-    plt.savefig(out_path, bbox_inches="tight")
+    # Save the figure
+    fig.savefig(out_path)
 
 
 def plot_pop_cov_lineplot(
@@ -1877,6 +1965,8 @@ def plot_pop_cov_lineplot(
     style: str = None,
     fig: plt.Figure = None,
     ax: plt.Axes = None,
+    legend: bool = False,
+    xmax: int = 10,
 ) -> plt.Figure:
     """
     Plot lineplot of the population coverage results for different vaccine designs.
@@ -1891,6 +1981,8 @@ def plot_pop_cov_lineplot(
     df = pop_cov_df[pop_cov_df["mhc_type"] == new_y]
     df = df.rename(columns={y: new_y})
     y = new_y
+    # Sort on the hue column
+    df = df.sort_values(by=hue)
 
     # Set the font size and style
     sns.set(font_scale=1.2)
@@ -1915,13 +2007,16 @@ def plot_pop_cov_lineplot(
     # Set the axis labels
     ax.set_xlabel("Minimum number of peptide-HLA hits cutoff", fontsize=18)
     ax.set_ylabel(f"{y} (%)", fontsize=18)
-    ax.tick_params(axis="both", which="major", labelsize=14)
+    ax.tick_params(axis="both", which="major", labelsize=16)
 
     # Set axis limits
     ax.set_ylim(0, 100)
-    ax.set_xlim(0, 10)
+    ax.set_xlim(0, xmax)
     # Display the legend outside of the plot (right middle)
-    ax.legend(bbox_to_anchor=(1.0, 0.8), loc=2, borderaxespad=0.0)
+    if legend:
+        ax.legend(bbox_to_anchor=(1.0, 0.8), loc=2, borderaxespad=0.0)
+    else:
+        ax.get_legend().remove()
     return fig
 
 
