@@ -180,31 +180,29 @@ def run_analyses(
             config.netmhc_calibration_raw_mhc2_csv,
             config.netmhc_calibration_fig,
         )
-    if config.run_kmer_graphs:
-        print("Running k-mer graphs...")
+    if config.run_kmer_graphs or config.run_compare_antigens:
         G = antigen_graphs[config.kmer_graph_antigen]
         antigen_params = params.copy()
         antigen_params = {**antigen_params, **antigens_dict[config.kmer_graph_antigen]}
         antigen_params["equalise_clades"] = False
         # antigen_params["n_clusters"] = 8
         kmergraph_config = EpitopeGraphConfig(**antigen_params)
+    if config.run_kmer_graphs:
+        print("Running k-mer graphs...")
         Q = design_vaccines(G, kmergraph_config)
         plot_kmer_graphs(G, Q, config.kmer_graphs_fig, recompute_scores=True)
     if config.run_compare_antigens:
         print("Comparing antigens...")
-        path_cov_df, pop_cov_df = compare_antigens(
-            params,
-            antigens_dict,
-            antigen_graphs,
-        )
-        compute_antigen_summary_metrics(
-            path_cov_df, pop_cov_df, config.compare_antigens_csv
-        )
-        print("Plotting antigen comparison...")
-        plot_antigens_comparison(
-            path_cov_df,
-            pop_cov_df,
-            config.compare_antigens_fig,
+        # TODO: Update the original antigen names in antigens_dict to use underscores
+        antigen_graphs = {k.replace(" ", "_"): v for k, v in antigen_graphs.items()}
+        antigens_dict = {k.replace(" ", "_"): v for k, v in antigens_dict.items()}
+        generate_and_plot_coverage_comparison(
+            exp_fasta_path=config.compare_antigens_fasta,
+            params=params,
+            antigens_dict=antigens_dict,
+            antigen_graphs=antigen_graphs,
+            csv_path=config.compare_antigens_csv,
+            out_path=config.compare_antigens_fig,
         )
 
     ###########################
@@ -479,48 +477,6 @@ def compute_coverages(
     # Add the antigen name to the dataframes
     path_cov_df["antigen"] = antigen
     pop_cov_df["antigen"] = antigen
-    return path_cov_df, pop_cov_df
-
-
-def compare_antigens(
-    params: dict,
-    antigens_dict: dict,
-    antigen_graphs: dict,
-    n_targets: list = list(range(0, 11)),
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Compare different antigen vaccine designs
-    """
-    # Create empty lists to store the results
-    path_cov_dfs = []
-    pop_cov_dfs = []
-
-    # Design vaccines for each antigen
-    for antigen, antigen_dict in antigens_dict.items():
-        params["fasta_path"] = antigen_dict["fasta_path"]
-        params["results_dir"] = antigen_dict["results_dir"]
-        config = EpitopeGraphConfig(**params)
-        epitope_graph = antigen_graphs[antigen]
-        vaccine_designs = design_vaccines(epitope_graph, config)
-        vaccine_kmers = seq_to_kmers(
-            path_to_seq(vaccine_designs[0]), config.k, epitope_graph
-        )
-        # Compute the coverages
-        path_cov_df, pop_cov_df = compute_coverages(
-            vaccine_kmers,
-            config,
-            antigen,
-            n_targets,
-            G=epitope_graph,
-        )
-        # Save the dataframes
-        path_cov_dfs.append(path_cov_df)
-        pop_cov_dfs.append(pop_cov_df)
-
-    # Concatenate the dataframes
-    path_cov_df = pd.concat(path_cov_dfs)
-    pop_cov_df = pd.concat(pop_cov_dfs)
-
     return path_cov_df, pop_cov_df
 
 
@@ -1953,7 +1909,9 @@ def compute_exp_dps_cov_comparison(path_cov_df: pd.DataFrame):
 
     for mhc_type in path_cov_df["mhc_type"].unique():
         for exp_id in path_cov_df["exp_id"].unique():
-            for target_id in path_cov_df["target_id"].unique():
+            for target_id in path_cov_df[path_cov_df["exp_id"] == exp_id][
+                "target_id"
+            ].unique():
                 exp_df = path_cov_df[
                     (path_cov_df["exp_id"] == exp_id)
                     & (path_cov_df["target_id"] == target_id)
@@ -1971,15 +1929,39 @@ def compute_exp_dps_cov_comparison(path_cov_df: pd.DataFrame):
 
 
 def generate_and_plot_coverage_comparison(
-    fasta_path: Path,
     exp_fasta_path: Path,
-    config: EpitopeGraphConfig,
-    kmers_dict: dict,
     out_path: Path,
     csv_path: Path,
+    # Same antigens
+    fasta_path: Path = None,
+    kmers_dict: dict = None,
+    config: EpitopeGraphConfig = None,
+    # Different antigens
+    params: dict = None,
+    antigens_dict: dict = None,
+    antigen_graphs: dict = None,
     mhc_types: list = ["mhc1", "mhc2"],
+    # Antigens order
+    antigens_order: list = [
+        "Coronavirinae nsp12",
+        "Sarbeco-Merbeco N",
+        "Sarbecovirus S RBD",
+        "Merbecovirus S RBD",
+        "Influenza A M1",
+        "H3N1 H3",
+        "H3N1 N1",
+    ],
 ):
     """ """
+    if fasta_path and kmers_dict and config:
+        # Same antigens therefore use the same target peptides to evaluate coverage
+        diff_antigens = False
+    elif antigens_dict and antigen_graphs and params:
+        # Different antigens therefore use different target peptides to evaluate coverage
+        diff_antigens = True
+    else:
+        raise ValueError("Missing arguments")
+
     # Create a dict to store the results
     path_cov_dict = {
         "exp_id": [],
@@ -1989,19 +1971,68 @@ def generate_and_plot_coverage_comparison(
         "pop_cov": [],
     }
 
-    # Load k-mers for the experimental groups and the target sequences
-    exp_peptides_dict = fasta_to_peptides_dict(exp_fasta_path, config.k)
-    target_peptides_dict = fasta_to_peptides_dict(fasta_path, config.k)
-    target_peptides_dict["all"] = [k for k in kmers_dict.keys()]
+    def _load_haps(
+        config: EpitopeGraphConfig,
+    ):
+        hap_freq_mhc1, average_frequency_mhc1 = load_haplotypes(
+            config.hap_freq_mhc1_path
+        )
+        overlap_haplotypes_mhc1 = load_overlap(None, hap_freq_mhc1, config, "mhc1")
+        hap_freq_mhc2, average_frequency_mhc2 = load_haplotypes(
+            config.hap_freq_mhc2_path
+        )
+        overlap_haplotypes_mhc2 = load_overlap(None, hap_freq_mhc2, config, "mhc2")
+        return (
+            hap_freq_mhc1,
+            average_frequency_mhc1,
+            overlap_haplotypes_mhc1,
+            hap_freq_mhc2,
+            average_frequency_mhc2,
+            overlap_haplotypes_mhc2,
+        )
 
-    # Load the k-mer EL-scores for MHC-I and MHC-II to compute the population coverage
-    hap_freq_mhc1, average_frequency_mhc1 = load_haplotypes(config.hap_freq_mhc1_path)
-    overlap_haplotypes_mhc1 = load_overlap(None, hap_freq_mhc1, config, "mhc1")
-    hap_freq_mhc2, average_frequency_mhc2 = load_haplotypes(config.hap_freq_mhc2_path)
-    overlap_haplotypes_mhc2 = load_overlap(None, hap_freq_mhc2, config, "mhc2")
+    # Load the experimental groups
+    if diff_antigens:
+        exp_peptides_dict = fasta_to_peptides_dict(exp_fasta_path, params["k"])
+    else:
+        exp_peptides_dict = fasta_to_peptides_dict(exp_fasta_path, config.k)
+
+    # Load k-mers for the target sequences
+    if not diff_antigens:
+        target_peptides_dict = fasta_to_peptides_dict(fasta_path, config.k)
+        target_peptides_dict["all"] = [k for k in kmers_dict.keys()]
+        # Load the k-mer EL-scores for MHC-I and MHC-II to compute the population coverage
+        (
+            hap_freq_mhc1,
+            average_frequency_mhc1,
+            overlap_haplotypes_mhc1,
+            hap_freq_mhc2,
+            average_frequency_mhc2,
+            overlap_haplotypes_mhc2,
+        ) = _load_haps(config)
 
     # For each experimental group and each target sequence, calculate the E(#DPs)
     for exp_id, exp_peptides in tqdm(exp_peptides_dict.items()):
+        if diff_antigens:
+            antigen_params = params.copy()
+            antigen_params = {**antigen_params, **antigens_dict[exp_id]}
+            config = EpitopeGraphConfig(**antigen_params)
+            antigen_graph = antigen_graphs[exp_id]
+            kmers_dict = dict(antigen_graph.nodes(data=True))
+            # Define target_peptides_dict
+            target_peptides_dict = fasta_to_peptides_dict(
+                antigen_params["fasta_path"], config.k
+            )
+            target_peptides_dict["all"] = [k for k in kmers_dict.keys()]
+            (
+                hap_freq_mhc1,
+                average_frequency_mhc1,
+                overlap_haplotypes_mhc1,
+                hap_freq_mhc2,
+                average_frequency_mhc2,
+                overlap_haplotypes_mhc2,
+            ) = _load_haps(config)
+
         for mhc_type in mhc_types:
             if mhc_type == "mhc1":
                 overlap_haplotypes = overlap_haplotypes_mhc1.copy()
@@ -2031,6 +2062,7 @@ def generate_and_plot_coverage_comparison(
                 pop_cov = 1
                 n_target = 0
                 while pop_cov > 0:
+                    # pop_cov = np.random.randint(0, 80) - n_target # Uncomment to mock the results
                     pop_cov = optivax_robust(
                         overlap_haplotypes,
                         average_frequency,
@@ -2048,21 +2080,37 @@ def generate_and_plot_coverage_comparison(
 
     # Generate the dataframes
     path_cov_df = pd.DataFrame(path_cov_dict)
+    if antigens_order is not None:
+        path_cov_df["exp_id"] = pd.Categorical(
+            path_cov_df["exp_id"], categories=antigens_order, ordered=True
+        )
+    path_cov_df.to_csv(csv_path, index=False)
     pop_cov_df = path_cov_df.copy()
     pop_cov_df = pop_cov_df[pop_cov_df["target_id"] == "all"]
     pop_cov_df["pop_cov"] = pop_cov_df["pop_cov"] * 100
     # Drop the "all" target from the path coverage dataframe
     path_cov_df = path_cov_df[path_cov_df["target_id"] != "all"]
     exp_dps_df = compute_exp_dps_cov_comparison(path_cov_df)
-    df = compute_exp_dps_cov_comparison(pop_cov_df)  # .to_latex()
+    df = compute_exp_dps_cov_comparison(pop_cov_df)
+    # print(
+    #     df.sort_values(by=["mhc_type", "E(#DPs)"], ascending=[True, False])[
+    #         ["mhc_type", "exp_id", "E(#DPs)"]
+    #     ]
+    #     .round(1)
+    #     .to_latex()
+    # )
     df = df.drop(columns=["target_id"])
-    df.to_csv(csv_path, index=False)
 
     # Save plot
     plot_antigens_comparison(
         exp_dps_df,
         pop_cov_df,
         out_path,
+        xmax=None,
+        ymax=None,
+        rotate_xticks=True,
+        point_size=4,
+        hspace=0.55,
     )
 
 
@@ -2570,7 +2618,8 @@ if __name__ == "__main__":
         "run_binding_criteria": False,
         "run_netmhc_calibration": False,
         "run_kmer_graphs": False,
-        "run_compare_antigens": False,
+        "compare_antigens_fasta": "data/outputs/data/antigen_designs.fasta",
+        "run_compare_antigens": True,
         "run_population_coverage": False,
         "run_pathogen_coverage": False,
         "run_experimental_prediction": False,

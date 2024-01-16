@@ -1100,7 +1100,13 @@ def plot_path_exp_dps(
 
 # TODO: Combine and generalise these two functions
 def plot_path_exp_dps_cov_comparison(
-    exp_dps_df: pd.DataFrame, mhc_type: str = "mhc1", ax=None, legend=False, ymax=None
+    exp_dps_df: pd.DataFrame,
+    mhc_type: str = "mhc1",
+    ax=None,
+    legend=False,
+    ymax=None,
+    rotate_xticks=False,
+    point_size=6,
 ):
     """
     Plot the expected number of DPs for each experimental group and each pathogen in the target sequences
@@ -1133,7 +1139,7 @@ def plot_path_exp_dps_cov_comparison(
         palette="colorblind",
         ax=ax,
         dodge=False,
-        size=6,
+        size=point_size,
         edgecolor="black",
         linewidth=0.5,
         alpha=0.7,
@@ -1159,6 +1165,8 @@ def plot_path_exp_dps_cov_comparison(
         )
     else:
         ax.get_legend().remove()
+    if rotate_xticks:
+        ax.tick_params(axis="x", rotation=45)
     fig = ax.get_figure()
     fig.tight_layout()
 
@@ -1901,6 +1909,11 @@ def plot_antigens_comparison(
     pop_cov_df: pd.DataFrame,
     out_path: str,
     fig_size: tuple = (20, 12),
+    xmax: int = 16,
+    ymax: int = 50,
+    rotate_xticks: bool = False,
+    point_size: int = 6,
+    hspace: float = 0.3,
 ) -> None:
     """
     Compare the coverage for different antigens.
@@ -1911,16 +1924,30 @@ def plot_antigens_comparison(
     gs = GridSpec(2, 2, height_ratios=[1, 1], width_ratios=[1, 1])
 
     ax1 = fig.add_subplot(gs[0, 0])
-    plot_path_exp_dps_cov_comparison(exp_dps_df, mhc_type="mhc1", ax=ax1, ymax=50)
+    plot_path_exp_dps_cov_comparison(
+        exp_dps_df,
+        mhc_type="mhc1",
+        ax=ax1,
+        ymax=ymax,
+        rotate_xticks=rotate_xticks,
+        point_size=point_size,
+    )
 
     ax2 = fig.add_subplot(gs[0, 1])
-    plot_path_exp_dps_cov_comparison(exp_dps_df, mhc_type="mhc2", ax=ax2, ymax=50)
+    plot_path_exp_dps_cov_comparison(
+        exp_dps_df,
+        mhc_type="mhc2",
+        ax=ax2,
+        ymax=ymax,
+        rotate_xticks=rotate_xticks,
+        point_size=point_size,
+    )
 
     ax3 = fig.add_subplot(gs[1, 0])
-    plot_pop_cov_lineplot(pop_cov_df, "mhc1", hue="exp_id", ax=ax3, xmax=16)
+    plot_pop_cov_lineplot(pop_cov_df, "mhc1", hue="exp_id", ax=ax3, xmax=xmax)
 
     ax4 = fig.add_subplot(gs[1, 1])
-    plot_pop_cov_lineplot(pop_cov_df, "mhc2", hue="exp_id", ax=ax4, xmax=16)
+    plot_pop_cov_lineplot(pop_cov_df, "mhc2", hue="exp_id", ax=ax4, xmax=xmax)
 
     # Add one legend for all subplots to the right of the subplots
     handles, labels = ax1.get_legend_handles_labels()
@@ -1933,12 +1960,12 @@ def plot_antigens_comparison(
         title="Experimental group",
         loc="upper left",
         bbox_to_anchor=(1, 0.6),
-        title_fontsize=18,
-        fontsize=16,
+        title_fontsize=20,
+        fontsize=18,
     )
 
     # Add more space between the subplots
-    fig.subplots_adjust(hspace=0.3, wspace=0.2)
+    fig.subplots_adjust(hspace=hspace, wspace=0.2)
 
     # Label each subplot with a letter
     all_axes = [ax1, ax2, ax3, ax4]

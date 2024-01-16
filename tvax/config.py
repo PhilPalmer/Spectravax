@@ -264,6 +264,7 @@ class AnalysesConfig(BaseModel):
     kmer_graphs_fig: Path = None
     # Compare antigens
     run_compare_antigens: bool = True
+    compare_antigens_fasta: Path = None
     compare_antigens_csv: Path = None
     compare_antigens_fig: Path = None
 
