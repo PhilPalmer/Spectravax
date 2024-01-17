@@ -238,6 +238,7 @@ class AnalysesConfig(BaseModel):
     """
 
     results_dir: Path = None
+    antigens_order: List[str] = None
     # Antigen graphs
     antigen_graphs_pkl: Path = None
     # K-mer filtering

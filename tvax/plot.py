@@ -6,6 +6,7 @@ import matplotlib.axes as axes
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from matplotlib.gridspec import GridSpec
 import networkx as nx
 import numpy as np
@@ -510,7 +511,7 @@ def plot_scores_distribution(
 
 
 def plot_kmer_filtering(
-    n_filtered_kmers_df: pd.DataFrame, out_path: str = None
+    n_filtered_kmers_df: pd.DataFrame, out_path: str = None, antigens_order: list = None
 ) -> None:
     """
     Plot stacked bar chart showing the number of k-mers that pass each filter
@@ -521,7 +522,15 @@ def plot_kmer_filtering(
     fig, ax = plt.subplots(figsize=(10, 6))
     sns.set_context("paper")
 
-    n_filtered_kmers_df = n_filtered_kmers_df.sort_values(by="antigen").reset_index()
+    if antigens_order is not None:
+        n_filtered_kmers_df["antigen"] = pd.Categorical(
+            n_filtered_kmers_df["antigen"], categories=antigens_order, ordered=True
+        )
+    else:
+        n_filtered_kmers_df = n_filtered_kmers_df.sort_values(
+            by="antigen"
+        ).reset_index()
+        antigens_order = n_filtered_kmers_df["antigen"].tolist()
 
     # Plot the bars
     sns.barplot(
@@ -549,7 +558,8 @@ def plot_kmer_filtering(
         ax=ax,
     )
 
-    for index, row in n_filtered_kmers_df.iterrows():
+    for index, antigen in enumerate(antigens_order):
+        row = n_filtered_kmers_df.loc[n_filtered_kmers_df["antigen"] == antigen].iloc[0]
         y_pos = (
             row["n_passed_kmers"] + 0.02 * row["n_passed_kmers"]
             if row["n_rare_kmers"] == 0
@@ -572,6 +582,9 @@ def plot_kmer_filtering(
     ax.spines.right.set_visible(False)
     ax.spines.top.set_visible(False)
     ax.legend(fontsize=14)
+    ax.get_yaxis().set_major_formatter(
+        ticker.FuncFormatter(lambda x, p: format(int(x), ","))
+    )
 
     # Save the figure
     plt.savefig(out_path, bbox_inches="tight")

@@ -79,7 +79,7 @@ def antigens_dict():
     Return a dictionary of antigen names and paths to fasta files.
     """
     return {
-        "Influenza-A M1": {
+        "Influenza A M1": {
             "fasta_path": "data/results_flua_m1/Seq_Preprocessing/flua_m1.fasta",
             "results_dir": "data/results_flua_m1/",
         },
@@ -118,11 +118,11 @@ def antigens_dict():
         #     "fasta_path": "data/input/embeco_protein_np.fa",
         #     "results_dir": "data/results_embeco_np",
         # },
-        "Orthomyxoviridae H3": {
+        "H3N1 H3": {
             "fasta_path": "data/input/H3_human.fa",
             "results_dir": "data/results_h3",
         },
-        "Orthomyxoviridae N1": {
+        "H3N1 N1": {
             "fasta_path": "data/input/N1_protein.fst",
             "results_dir": "data/results_n1",
         },
@@ -156,7 +156,9 @@ def run_analyses(
             )
     if config.run_kmer_filtering:
         n_filtered_kmers_df = compute_n_filtered_kmers(params)
-        plot_kmer_filtering(n_filtered_kmers_df, config.kmer_filtering_fig)
+        plot_kmer_filtering(
+            n_filtered_kmers_df, config.kmer_filtering_fig, config.antigens_order
+        )
     if config.run_scores_distribution:
         # TODO: update this func to use the antigen_graphs dict
         if config.scores_distribution_json.exists():
@@ -203,6 +205,7 @@ def run_analyses(
             antigen_graphs=antigen_graphs,
             csv_path=config.compare_antigens_csv,
             out_path=config.compare_antigens_fig,
+            antigens_order=config.antigens_order,
         )
 
     ###########################
@@ -564,7 +567,6 @@ def compute_n_filtered_kmers(
     }
     # Compute the metrics for each antigen
     for antigen, data in antigens_dict.items():
-        antigen = antigen.replace("Influenza-A", "Influenza A")
         n_filtered_kmers["antigen"].append(antigen)
         # Number of raw k-mers
         params["fasta_path"] = data["fasta_path"]
@@ -1631,6 +1633,7 @@ def cons_vs_path_cov(
     return antigens_cons_path_cov_df
 
 
+# TODO: Update this function to keep only the parts computing the summary metrics and add to the analysis pipeline
 def compute_antigen_summary_metrics(
     path_cov_df: pd.DataFrame = None,
     pop_cov_df: pd.DataFrame = None,
@@ -1942,15 +1945,7 @@ def generate_and_plot_coverage_comparison(
     antigen_graphs: dict = None,
     mhc_types: list = ["mhc1", "mhc2"],
     # Antigens order
-    antigens_order: list = [
-        "Coronavirinae nsp12",
-        "Sarbeco-Merbeco N",
-        "Sarbecovirus S RBD",
-        "Merbecovirus S RBD",
-        "Influenza A M1",
-        "H3N1 H3",
-        "H3N1 N1",
-    ],
+    antigens_order: list = None,
 ):
     """ """
     if fasta_path and kmers_dict and config:
@@ -2613,7 +2608,16 @@ if __name__ == "__main__":
     analyses_params = {
         "antigen": "Influenza-A M1",
         "results_dir": "data/outputs",
-        "run_kmer_filtering": False,
+        "antigens_order": [
+            "Coronavirinae nsp12",
+            "Sarbeco-Merbeco N",
+            "Sarbecovirus S RBD",
+            "Merbecovirus S RBD",
+            "Influenza A M1",
+            "H3N1 H3",
+            "H3N1 N1",
+        ],
+        "run_kmer_filtering": True,
         "run_scores_distribution": False,
         "run_binding_criteria": False,
         "run_netmhc_calibration": False,
