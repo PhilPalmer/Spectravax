@@ -388,7 +388,9 @@ def plot_scores(
 
 
 def plot_scores_distribution(
-    scores_dict: dict, out_path: str = "data/figures/scores_distribution.svg"
+    scores_dict: dict,
+    out_path: str = "data/figures/scores_distribution.svg",
+    antigens_order: list = None,
 ) -> None:
     """
     Plot the distribution of scores for each score in the scores dictionary
@@ -402,22 +404,26 @@ def plot_scores_distribution(
     sns.set_theme(style="white", rc={"axes.facecolor": (0, 0, 0, 0)})
 
     # Sort the dataframe by the antigen name
-    for antigen, scores in scores_dict.items():
-        del scores["f_scaled"]
     df = pd.DataFrame(scores_dict)
     df = df.sort_index(axis=1)
 
+    if antigens_order is not None:
+        df = df[antigens_order]
+    else:
+        df = df.sort_index(axis=1)
+        antigens_order = df.columns
+
     score_names = {
-        "f_cons": "Pathogen coverage ($c_{path}$)",
-        "f_mhc1": "MHC-I host coverage ($c_{mhc1}$)",
-        "f_mhc2": "MHC-II host coverage ($c_{mhc2}$)",
-        "f": "Coverage ($c$)",
-        "f_clade_adjusted": "Clade coverage ($c_{clade}$)",
+        "c_path": "Pathogen coverage ($c_{path}$)",
+        "c_mhc1": "MHC-I host coverage ($c_{mhc1}$)",
+        "c_mhc2": "MHC-II host coverage ($c_{mhc2}$)",
+        "c": "Coverage ($c$)",
+        "c_clade": "Clade coverage ($c_{clade}$)",
     }
 
     # Determine the number of unique scores and antigens
     unique_scores = df.index.unique()
-    unique_antigens = sorted(df.columns.unique())
+    unique_antigens = antigens_order
     colors = sns.color_palette("colorblind", len(unique_antigens))
     antigen_color_mapping = dict(zip(unique_antigens, colors))
 

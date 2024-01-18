@@ -167,9 +167,11 @@ def run_analyses(
         # TODO: Fix this step - I was getting "KeyError: 'MSDNGPQSN'" during the graph construction
         else:
             scores_dict = compute_antigen_scores(
-                params, config.scores_distribution_json, antigens_dict, antigen_graphs
+                params, config.scores_distribution_json, antigen_graphs
             )
-        plot_scores_distribution(scores_dict, config.scores_distribution_fig)
+        plot_scores_distribution(
+            scores_dict, config.scores_distribution_fig, config.antigens_order
+        )
     if config.run_binding_criteria:
         binding_criteria_df = load_and_preprocess_data(
             config.binding_criteria_csv, config.binding_crtieria_dir
@@ -508,8 +510,8 @@ def construct_antigen_graphs(
 def compute_antigen_scores(
     params: dict,
     out_path: Path,
-    antigens_dict: dict = antigens_dict(),
     antigen_graphs: dict = None,
+    weights: tuple = (1, 1, 1, 1),
 ) -> dict:
     """
     Compute the scores for each antigen
@@ -518,32 +520,29 @@ def compute_antigen_scores(
     scores_dict = {}
 
     # Get the scores for each antigen
+    w_path, w_mhc1, w_mhc2, w_clade = weights
     for antigen, G in antigen_graphs.items():
-        params["fasta_path"] = antigens_dict[antigen]["fasta_path"]
-        params["results_dir"] = antigens_dict[antigen]["results_dir"]
-        config = EpitopeGraphConfig(**params)
         scores_dict[antigen] = {
-            "f_cons": [],
-            "f_mhc1": [],
-            "f_mhc2": [],
-            "f": [],
-            "f_clade_adjusted": [],
-            "f_scaled": [],
+            "c_path": [],
+            "c_mhc1": [],
+            "c_mhc2": [],
+            "c": [],
+            "c_clade": [],
         }
 
         for _, data in G.nodes(data=True):
-            f_cons = data["frequency"]
-            f_mhc1 = data["population_coverage_mhc1"]
-            f_mhc2 = data["population_coverage_mhc2"]
-            f_clade = data["clade_weight"]
-            f = f_cons * (f_mhc1 + f_mhc2)
-            f_clade_adjusted = f * f_clade
+            c_path = data["frequency"]
+            c_mhc1 = data["population_coverage_mhc1"]
+            c_mhc2 = data["population_coverage_mhc2"]
+            clade = data["clade_weight"]
+            c = c_path * w_path * (w_mhc1 * c_mhc1 + w_mhc2 * c_mhc2)
+            c_clade = c * clade * w_clade
             # Save the scores
-            scores_dict[antigen]["f_cons"].append(f_cons)
-            scores_dict[antigen]["f_mhc1"].append(f_mhc1)
-            scores_dict[antigen]["f_mhc2"].append(f_mhc2)
-            scores_dict[antigen]["f"].append(f)
-            scores_dict[antigen]["f_clade_adjusted"].append(f_clade_adjusted)
+            scores_dict[antigen]["c_path"].append(c_path)
+            scores_dict[antigen]["c_mhc1"].append(c_mhc1)
+            scores_dict[antigen]["c_mhc2"].append(c_mhc2)
+            scores_dict[antigen]["c"].append(c)
+            scores_dict[antigen]["c_clade"].append(c_clade)
     # Save the scores to JSON
     with open(out_path, "w") as f:
         json.dump(scores_dict, f)
@@ -2591,7 +2590,7 @@ if __name__ == "__main__":
         "hap_freq_mhc2_path": "../optivax/haplotype_frequency_marry2.pkl",
         "k": [9, 15],
         "m": 1,
-        "n_target": 1,
+        "n_target": 0,
         "robust": False,
         "aligned": False,
         "decycle": True,
