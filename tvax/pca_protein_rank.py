@@ -229,14 +229,13 @@ def plot_pca(
     # Define clusters
     df.loc[df["Sequence_id"].str.contains("design"), "cluster"] = "vaccine design"
     df["cluster"] = df["cluster"].astype(int, errors="ignore")
-    # Define colours for each cluster
-    df["colour"] = df[group_by].map(
-        {
-            cluster: colours[i % len(colours)]
-            for i, cluster in enumerate(df[group_by].unique())
-        }
-    )
-    df.loc[df["Sequence_id"].str.contains("design"), "colour"] = "black"
+
+    # Assign colors to clusters
+    cluster_colours = {
+        cluster: colours[i % len(colours)]
+        for i, cluster in enumerate(df[group_by].unique())
+    }
+
     if interactive:
         px.defaults.template = "plotly_white"
         df["cluster"] = df["cluster"].astype(str)
@@ -262,31 +261,82 @@ def plot_pca(
         fig = plt.figure(figsize=figsize)
     else:
         fig = ax.get_figure()
+
     if plot_type == "3D":
         ax = fig.add_subplot(111, projection="3d")
-    # Generate a list of sorted clusters - make sure the vaccine design is removed and added to the end
+
     clusters = df[group_by].unique().tolist()
-    clusters.remove("vaccine design")
-    sorted_clusters = sorted(clusters)
-    sorted_clusters.append("vaccine design")
+    if "vaccine design" in clusters:
+        clusters.remove("vaccine design")
+        sorted_clusters = sorted(clusters)
+        sorted_clusters.append("vaccine design")
+    else:
+        sorted_clusters = sorted(clusters)
+
     for t1 in sorted_clusters:
-        group_df = df.loc[df[group_by] == t1]
-        X = group_df["PCA1"]
-        Y = group_df["PCA2"]
-        Z = group_df["PCA3"]
-        C = group_df["colour"]
-        S = group_df["size"]
+        # First plot grey points
+        group_df_grey = df.loc[(df[group_by] == t1) & (df.get("passed", True) == False)]
+        X_grey = group_df_grey["PCA1"]
+        Y_grey = group_df_grey["PCA2"]
+        Z_grey = group_df_grey["PCA3"]
+        S_grey = group_df_grey["size"]
         if plot_type == "2D":
-            if t1 == "vaccine design":
-                plt.scatter(X, Y, c=C, edgecolor="black", s=100, marker="X", label=t1)
-            else:
-                plt.scatter(X, Y, c=C, edgecolor="black", s=S, label=t1)
+            plt.scatter(X_grey, Y_grey, c="#808080", s=S_grey, label=None, alpha=0.8)
         elif plot_type == "3D":
-            ax.scatter(X, Y, Z, c=C, edgecolor="black", s=S, label=t1)
+            ax.scatter(X_grey, Y_grey, Z_grey, c="#808080", s=S_grey, label=None)
+
+        # Then plot colored points
+        group_df_colored = df.loc[
+            (df[group_by] == t1) & (df.get("passed", True) != False)
+        ]
+        X_colored = group_df_colored["PCA1"]
+        Y_colored = group_df_colored["PCA2"]
+        Z_colored = group_df_colored["PCA3"]
+        S_colored = group_df_colored["size"]
+        if plot_type == "2D":
+            plt.scatter(
+                X_colored,
+                Y_colored,
+                c=cluster_colours[t1],
+                edgecolor="black",
+                s=S_colored,
+                label=t1,
+                alpha=0.8,
+            )
+        elif plot_type == "3D":
+            ax.scatter(
+                X_colored,
+                Y_colored,
+                Z_colored,
+                c=cluster_colours[t1],
+                edgecolor="black",
+                s=S_colored,
+                label=t1,
+            )
+
+    # Create custom legend entries for all clusters
+    legend_elements = [
+        plt.Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="w",
+            label=str(cluster),
+            markersize=7,
+            markerfacecolor=color,
+            markeredgewidth=1,  # Specify the width of the edge
+            markeredgecolor="black",  # Specify the color of the edge
+        )
+        for cluster, color in cluster_colours.items()
+    ]
     plt.xlabel("PC 1")
     plt.ylabel("PC 2", rotation="90")
     plt.legend(
-        loc="center left", bbox_to_anchor=(1.05, 0.5), fontsize=12, title="Clusters"
+        handles=legend_elements,
+        loc="center left",
+        bbox_to_anchor=(1.05, 0.5),
+        fontsize=12,
+        title="Clusters",
     )
     plt.tight_layout()
     if plot_type == "3D":
