@@ -378,5 +378,28 @@ def seq_to_kmers(seq, k, G):
     return kmers
 
 
+def find_kmer_in_msa(msa, k_mer):
+    """
+    Returns the first found position of a k-mer in a multiple sequence alignment.
+    """
+    for identifier, sequence in msa.items():
+        # Create a version of the sequence without gaps for searching
+        sequence_no_gaps = sequence.replace("-", "")
+        position_no_gaps = sequence_no_gaps.find(k_mer)
+
+        if position_no_gaps != -1:
+            # Found the k-mer in the no-gaps version, now find the equivalent position in the original sequence
+            real_position = 0
+            while position_no_gaps > 0:
+                if sequence[real_position] != "-":
+                    position_no_gaps -= 1
+                real_position += 1
+
+            # Adjust real_position for the start of the k-mer in the original sequence
+            return real_position
+    # k-mer not found in any sequence
+    return None
+
+
 # def get_kmers(kmers, k):
 #     return [kmer for kmer in kmers if len(kmer) == k]

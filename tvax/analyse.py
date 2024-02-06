@@ -60,6 +60,7 @@ from tvax.seq import (
     seq_to_kmers,
     load_seqs_from_fasta,
     fasta_to_peptides_dict,
+    find_kmer_in_msa,
 )
 from typing import Tuple
 
@@ -193,6 +194,24 @@ def run_analyses(
         kmergraph_config = EpitopeGraphConfig(**antigen_params)
     if config.run_kmer_graphs:
         print("Running k-mer graphs...")
+        # Update the positions in the graph
+        msa_path = kmergraph_config.msa_path
+        msa = load_fasta(msa_path, remove_chars=False)
+        # Convert MSA
+        for kmer, data in dict(G.nodes(data=True)).items():
+            # path_cov = data["frequency"]
+            # mhc1_cov = data["population_coverage_mhc1"]
+            # mhc2_cov = data["population_coverage_mhc2"]
+            # cov = path_cov * (mhc1_cov + mhc2_cov) * 100
+            cov = data["score"]
+            if kmer == "BEGIN":
+                pos = 0
+            elif kmer == "END":
+                pos = len(list(msa.values())[0])
+            else:
+                pos = find_kmer_in_msa(msa, kmer)
+            # data["score"] = cov
+            data["pos"] = (pos, cov)
         Q = design_vaccines(G, kmergraph_config)
         plot_kmer_graphs(G, Q, config.kmer_graphs_fig, recompute_scores=True)
     if config.run_compare_antigens:

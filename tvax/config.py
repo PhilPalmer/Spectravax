@@ -261,7 +261,7 @@ class AnalysesConfig(BaseModel):
     netmhc_calibration_fig: Path = None
     # K-mer graphs
     run_kmer_graphs: bool = True
-    kmer_graph_antigen: str = "Sarbecovirus S RBD"
+    kmer_graph_antigen: str = "Sarbeco-Merbeco N"
     kmer_graphs_fig: Path = None
     # Compare antigens
     run_compare_antigens: bool = True

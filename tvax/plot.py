@@ -128,17 +128,13 @@ def plot_kmer_graph(
         path_nodes = sum(paths, [])
         for i, node in enumerate(path_nodes):
             if xlim is not None:
-                if pos[node][0] < xlim[0] + 2 or pos[node][0] > xlim[1] - 1:
+                if pos[node][0] < xlim[0] + 1 or pos[node][0] > xlim[1] - 1:
                     continue
-            if pos[node][0] == 38:
-                x_offset = -1
-            if pos[node][0] == 40:
-                x_offset = 1
-            else:
-                x_offset = 0
-            y_offset = 0.2 if i % 2 != 0 else -0.5
-            plt.text(
-                pos[node][0] + x_offset,
+            y_offset = 0.2  # if i % 2 != 0 else -0.5
+            if pos[node][0] in [358, 359, 361, 365, 372]:
+                y_offset = -0.5
+            ax.text(
+                pos[node][0],
                 pos[node][1] + y_offset,
                 node,
                 ha="center",
@@ -180,9 +176,9 @@ def plot_kmer_graphs(
     out_path: str,
     fig_size: tuple = (16, 16),
     xlim1: tuple = None,
-    ylim1: tuple = ([-3, 60]),
-    xlim2: tuple = ([30, 50]),
-    ylim2: tuple = ([-1, 15]),
+    xlim2: tuple = ([355, 375]),
+    ylim1: tuple = ([0, 30]),
+    ylim2: tuple = ([0, 18]),
     recompute_scores: bool = (False,),
 ) -> None:
     """
@@ -202,16 +198,23 @@ def plot_kmer_graphs(
 
     # Plot the graphs
     fig1 = plot_kmer_graph(
-        G, paths, fig=fig, ax=ax1, xlim=xlim1, ylim=ylim1, jitter_amount=0
+        G,
+        paths,
+        fig=fig,
+        ax=ax1,
+        xlim=xlim2,
+        ylim=ylim2,
+        with_labels=True,
+        jitter_amount=0,
     )
     fig2 = plot_kmer_graph(
         G,
         paths,
         fig=fig,
         ax=ax2,
-        xlim=xlim2,
-        ylim=ylim2,
-        with_labels=True,
+        xlim=xlim1,
+        ylim=ylim1,
+        with_labels=False,
         jitter_amount=0,
     )
 
