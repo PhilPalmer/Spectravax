@@ -263,6 +263,9 @@ class AnalysesConfig(BaseModel):
     run_kmer_graphs: bool = True
     kmer_graph_antigen: str = "Sarbeco-Merbeco N"
     kmer_graphs_fig: Path = None
+    # Parameter sweep
+    run_parameter_sweep: bool = True
+    parameter_sweep_csv: Path = None
     # Compare antigens
     run_compare_antigens: bool = True
     compare_antigens_fasta: Path = None
@@ -412,6 +415,14 @@ class AnalysesConfig(BaseModel):
             results_dir = values.get("results_dir")
             kmer_graphs_fig = f"{results_dir}/figures/kmer_graphs.svg"
             return Path(kmer_graphs_fig)
+        return Path(value)
+
+    @validator("parameter_sweep_csv", pre=True, always=True)
+    def validate_parameter_sweep_csv(cls, value, values):
+        if value is None:
+            results_dir = values.get("results_dir")
+            parameter_sweep_csv = f"{results_dir}/data/parameter_sweep.csv"
+            return Path(parameter_sweep_csv)
         return Path(value)
 
     @validator("compare_antigens_csv", pre=True, always=True)

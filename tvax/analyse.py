@@ -14,6 +14,7 @@ import subprocess
 
 from Bio import SeqIO
 from dna_features_viewer import GraphicFeature, GraphicRecord
+from itertools import product
 from sklearn.preprocessing import MinMaxScaler
 from tqdm import tqdm
 from tvax.config import AnalysesConfig, EpitopeGraphConfig, Weights
@@ -119,11 +120,11 @@ def antigens_dict():
         #     "fasta_path": "data/input/embeco_protein_np.fa",
         #     "results_dir": "data/results_embeco_np",
         # },
-        "H3N1 H3": {
+        "H3N2 H3": {
             "fasta_path": "data/input/H3_human.fa",
             "results_dir": "data/results_h3",
         },
-        "H3N1 N1": {
+        "HxN1 N1": {
             "fasta_path": "data/input/N1_protein.fst",
             "results_dir": "data/results_n1",
         },
@@ -145,9 +146,10 @@ def run_analyses(
         or config.run_compare_antigens
         or config.run_population_coverage
         or config.run_coverage_comparison
+        or config.run_parameter_sweep
     ):
         if config.antigen_graphs_pkl.exists():
-            print("Loading antigen graphs from pickle file")
+            print(f"Loading antigen graphs from pickle file: {config.antigen_graphs_pkl}")
             with open(config.antigen_graphs_pkl, "rb") as file:
                 antigen_graphs = pickle.load(file)
         else:
@@ -163,9 +165,9 @@ def run_analyses(
     if config.run_scores_distribution:
         # TODO: update this func to use the antigen_graphs dict
         if config.scores_distribution_json.exists():
+            print(f"Loading scores distribution from json file: {config.scores_distribution_json}")
             with open(config.scores_distribution_json, "r") as file:
                 scores_dict = json.load(file)
-        # TODO: Fix this step - I was getting "KeyError: 'MSDNGPQSN'" during the graph construction
         else:
             scores_dict = compute_antigen_scores(
                 params, config.scores_distribution_json, antigen_graphs
@@ -192,6 +194,8 @@ def run_analyses(
         antigen_params["equalise_clades"] = False
         # antigen_params["n_clusters"] = 8
         kmergraph_config = EpitopeGraphConfig(**antigen_params)
+        # G = build_epitope_graph(kmergraph_config)
+
     if config.run_kmer_graphs:
         print("Running k-mer graphs...")
         # Update the positions in the graph
@@ -214,6 +218,14 @@ def run_analyses(
             data["pos"] = (pos, cov)
         Q = design_vaccines(G, kmergraph_config)
         plot_kmer_graphs(G, Q, config.kmer_graphs_fig, recompute_scores=True)
+    if config.run_parameter_sweep:
+        print("Running parameter sweep...")
+        run_parameter_sweep_parallel_multiple_antigens(
+            antigens_dict=antigens_dict,
+            antigen_graphs=antigen_graphs,
+            parameter_sweep_csv=config.parameter_sweep_csv,
+            params=params,
+        )
     if config.run_compare_antigens:
         print("Comparing antigens...")
         # TODO: Update the original antigen names in antigens_dict to use underscores
@@ -353,125 +365,169 @@ def run_analyses(
 #################
 
 
+def run_parameter_sweep_parallel_multiple_antigens(
+    antigens_dict: dict,
+    antigen_graphs: dict,
+    parameter_sweep_csv: Path,
+    params: dict,
+):
+    """
+    Run a parameter sweep for all antigens.
+    """
+    # Initialise the dataframe containing:
+    df = pd.DataFrame(
+        columns=[
+            "antigen",
+            "w_mhc1",
+            "w_mhc2",
+            "E(#DPs)_host+pathogen_cov_mhc1",
+            "E(#DPs)_host+pathogen_cov_mhc2",
+            "E(#DPs)_host_cov_mhc1",
+            "E(#DPs)_host_cov_mhc2",
+            "vaccine_seq",
+        ]
+    )
+    # For each antigen
+    for antigen, antigen_graph in antigen_graphs.items():
+        antigen_params = params.copy()
+        antigen_params = {**antigen_params, **antigens_dict[antigen]}
+        df = run_parameter_sweep(
+            df=df, G=antigen_graph, params=antigen_params, antigen=antigen, parameter_sweep_csv=parameter_sweep_csv
+        )
+    return df
+
+
 def weights() -> list:
     """
     Returns a list of weights to be used in the parameter sweep.
     """
-    return [0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 25.6, 51.2]
+    return [0.001, 0.01, 0.1, 1, 10, 100, 1000]
 
 
-def run_parameter_sweep_parallel(
+def run_parameter_sweep(
+    df: pd.DataFrame,
+    G: nx.Graph,
     params: dict,
-    w_cons: int = 1,
+    antigen: str,
+    parameter_sweep_csv: Path,
     w_mhc1_lst: list = weights(),
     w_mhc2_lst: list = weights(),
-    n_targets: list = list(range(0, 11)),
-    results_path: str = "data/param_sweep_h3.csv",
-    num_threads: int = 4,
-) -> pd.DataFrame:
+    n_target: int = 10,
+):
     """
-    Run a parameter sweep over the weights for the population coverage.
+    Run a parameter sweep over the MHC-I and MHC-II weights saving the coverage results in a dataframe.
     """
+    def _compute_coverages(
+        G: nx.Graph,
+        Q: list,
+        config: EpitopeGraphConfig,
+        seq_id: str,
+        mhc_types: list = ["mhc1", "mhc2"],
+        cov_types: list = ["host", "host+pathogen"]
+    ):
+        vaccine_seq = path_to_seq(Q[0])
+        vaccine_kmers = seq_to_kmers(vaccine_seq, config.k, G)
+        (
+            hap_freq_mhc1,
+            average_frequency_mhc1,
+            overlap_haplotypes_mhc1,
+            hap_freq_mhc2,
+            average_frequency_mhc2,
+            overlap_haplotypes_mhc2,
+        ) = load_haps(config)
+    
+        # Initialise dict
+        pop_cov_dict = {
+            "mhc_type": [],
+            "seq_id": [],
+            "pop_cov": [],
+            "cov_type": [],
+            "n_target": [],
+        }
 
-    def process_weight(w_mhc1, w_mhc2):
-        # Create empty dataframe
-        df = pd.DataFrame(
-            {
-                "vaccine_seq": [],
-                "w_cons": [],
-                "w_mhc1": [],
-                "w_mhc2": [],
-                "path_cov": [],
-            }
-        )
-        for n_target in n_targets:
-            df[f"pop_cov_mhc1_n_{n_target}"] = []
-            df[f"pop_cov_mhc2_n_{n_target}"] = []
+        # For each MHC type
+        for mhc_type in mhc_types:
+            if mhc_type == "mhc1":
+                overlap_haplotypes = overlap_haplotypes_mhc1
+                average_frequency = average_frequency_mhc1
+            else:
+                overlap_haplotypes = overlap_haplotypes_mhc2
+                average_frequency = average_frequency_mhc2
 
+            # For each sequence in comp_df
+            for cov_type in sorted(cov_types):
+                kmers_dict = None if cov_type == "host" else dict(G.nodes(data=True))
+
+                # Compute the coverage
+                pop_cov = 1
+                n_target = 0
+                while pop_cov > 0:
+                    pop_cov = optivax_robust(
+                        overlap_haplotypes,
+                        average_frequency,
+                        n_target,
+                        vaccine_kmers,
+                        kmers_dict,
+                    )
+                    n_target += 1
+                    pop_cov_dict["mhc_type"].append(mhc_type)
+                    pop_cov_dict["seq_id"].append(seq_id)
+                    pop_cov_dict["pop_cov"].append(pop_cov)
+                    pop_cov_dict["n_target"].append(n_target)
+                    pop_cov_dict["cov_type"].append(cov_type)
+
+        pop_cov_df = pd.DataFrame(pop_cov_dict)
+        return pop_cov_df
+
+    # Initialise the weight combinations
+    weight_combinations = list(product(w_mhc1_lst, w_mhc2_lst))
+
+    # For each weight combination
+    for w_mhc1, w_mhc2 in weight_combinations:
+        # Update the scores in the graph
+        for kmer, data in G.nodes(data=True):
+            path_cov = data["frequency"]
+            mhc1_cov = data["population_coverage_mhc1"]
+            mhc2_cov = data["population_coverage_mhc2"]
+            data["score"] = path_cov * (w_mhc1 * mhc1_cov + w_mhc2 * mhc2_cov) * 100
+        # Design and save the vaccine
         params["weights"] = {
-            "frequency": w_cons,
+            "frequency": 1,
             "population_coverage_mhc1": w_mhc1,
             "population_coverage_mhc2": w_mhc2,
+            "clade": 1,
         }
         config = EpitopeGraphConfig(**params)
-        epitope_graph = build_epitope_graph(config)
-        vaccine_designs = design_vaccines(epitope_graph, config)
-        vaccine_seq = [path_to_seq(path) for path in vaccine_designs][0]
+        Q = design_vaccines(G, config)
+        # Create the comp_df
+        seq_id = f"{antigen.replace(' ','-')}_w1{w_mhc1}_w2{w_mhc2}"
+        comp_df = pd.DataFrame(columns=["Sequence_id", ""])
+        comp_df["Sequence_id"] = [seq_id]
 
-        vaccine_designs = design_vaccines(epitope_graph, config)
-        vaccine_kmers = seq_to_kmers(
-            path_to_seq(vaccine_designs[0]), config.k, epitope_graph
+        # Calculate the coverage, MHC-I and MHC-II coverage (n>=5)
+        pop_cov_df = _compute_coverages(
+            G,
+            Q,
+            config,
+            seq_id
         )
-        # Compute the coverages
-        path_cov_df = compute_pathogen_coverages(vaccine_kmers, config)
-        path_cov = compute_av_pathogen_coverage(vaccine_kmers, config)
-        # Record population coverage for different values of n for Class I and II
-        figs, pop_cov_df = plot_population_coverage(
-            vaccine_kmers,
-            n_targets=n_targets,
-            config=config,
-        )
-        # Select rows where ancestry is Average
-        pop_cov_df = pop_cov_df[pop_cov_df["ancestry"] == "Average"]
-
-        # Append to dataframe
+        comp_df = compute_exp_dps(pop_cov_df, comp_df, mhc_types=["mhc1", "mhc2"], group_cols = ["seq_id", "mhc_type", "cov_type"])
+        # Save and write the results to the dataframe
         df = df.append(
             {
-                "vaccine_seq": vaccine_seq,
-                "w_cons": w_cons,
+                "antigen": antigen,
+                "vaccine_seq": path_to_seq(Q[0]),
                 "w_mhc1": w_mhc1,
                 "w_mhc2": w_mhc2,
-                "path_cov": path_cov,
-                **{
-                    f"pop_cov_mhc1_n_{n_target}": pop_cov_df[
-                        (pop_cov_df["mhc_type"] == "mhc1")
-                        & (pop_cov_df["n_target"] == f"n ≥ {n_target}")
-                    ]["pop_cov"].values[0]
-                    for n_target in n_targets
-                },
-                **{
-                    f"pop_cov_mhc2_n_{n_target}": pop_cov_df[
-                        (pop_cov_df["mhc_type"] == "mhc2")
-                        & (pop_cov_df["n_target"] == f"n ≥ {n_target}")
-                    ]["pop_cov"].values[0]
-                    for n_target in n_targets
-                },
+                "E(#DPs)_host+pathogen_cov_mhc1": comp_df.loc[comp_df["Sequence_id"] == seq_id, "E(#DPs)_host+pathogen_cov_mhc1"].values[0],
+                "E(#DPs)_host+pathogen_cov_mhc2": comp_df.loc[comp_df["Sequence_id"] == seq_id, "E(#DPs)_host+pathogen_cov_mhc2"].values[0],
+                "E(#DPs)_host_cov_mhc1": comp_df.loc[comp_df["Sequence_id"] == seq_id, "E(#DPs)_host_cov_mhc1"].values[0],
+                "E(#DPs)_host_cov_mhc2": comp_df.loc[comp_df["Sequence_id"] == seq_id, "E(#DPs)_host_cov_mhc2"].values[0],
             },
             ignore_index=True,
         )
-        df.to_csv(results_path, index=False)
-        return df
-
-    # Create empty dataframe
-    df = pd.DataFrame(
-        {
-            "vaccine_seq": [],
-            "w_cons": [],
-            "w_mhc1": [],
-            "w_mhc2": [],
-            "path_cov": [],
-        }
-    )
-    for n_target in n_targets:
-        df[f"pop_cov_mhc1_n_{n_target}"] = []
-        df[f"pop_cov_mhc2_n_{n_target}"] = []
-
-    with ThreadPoolExecutor(max_workers=num_threads) as executor:
-        # Submit tasks for each combination of w_mhc1 and w_mhc2
-        futures = [
-            executor.submit(process_weight, w_mhc1, w_mhc2)
-            for w_mhc1 in w_mhc1_lst
-            for w_mhc2 in w_mhc2_lst
-        ]
-
-        # Process the results as they become available
-        for future in as_completed(futures):
-            result = future.result()
-            df = df.append(result, ignore_index=True)
-            df.to_csv(results_path, index=False)
-
+        df.to_csv(parameter_sweep_csv, index=False)
     return df
-
 
 ###################################
 # Compare different antigen designs
@@ -517,6 +573,14 @@ def construct_antigen_graphs(
         # Update all params using the antigen_dict
         params = old_params.copy()
         params = {**params, **antigen_dict}
+        params["equalise_clades"] = True
+        params["n_clusters"] = None
+        params["weights"] = {
+            "frequency": 1,
+            "population_coverage_mhc1": 1,
+            "population_coverage_mhc2": 1,
+            "clade": 1,
+        }
         config = EpitopeGraphConfig(**params)
         epitope_graph = build_epitope_graph(config)
         antigen_graphs[antigen] = epitope_graph
@@ -1159,6 +1223,7 @@ def compute_coverage(
 ) -> pd.DataFrame:
     """
     Compute coverage for all sequences in the input components dataframe.
+    Vaccine coverage should be set to true if only the k-mers in common between the WT and vaccine design should be used.
     """
 
     # Initialise dict
@@ -1229,6 +1294,7 @@ def compute_exp_dps(
     pop_cov_df: pd.DataFrame,
     comp_df: pd.DataFrame,
     mhc_types: list = ["mhc1", "mhc2"],
+    group_cols: list = ["seq_id", "mhc_type", "vaccine_coverage"]
 ) -> pd.DataFrame:
     """
     Add the expected # of displayed peptides to the components dataframe.
@@ -1236,24 +1302,32 @@ def compute_exp_dps(
     pop_cov_df = transform_population_data(
         pop_cov_df,
         group_col="seq_id",
-        group_cols=["seq_id", "mhc_type", "vaccine_coverage"],
+        group_cols=group_cols,
     )
     # For each sequence in the dataframe compute the expected number of displayed peptides
     for mhc_type in mhc_types:
         for seq_id in pop_cov_df["seq_id"].unique():
-            for coverage in pop_cov_df["vaccine_coverage"].unique():
-                cov_label = "vax" if coverage else "wts"
+            for coverage in pop_cov_df[group_cols[2]].unique():
+                if type(coverage) == bool:
+                    cov_label = "vax" if coverage else "wts"
+                else:
+                    cov_label = coverage
+                col_name = f"E(#DPs)_{cov_label}_cov_{mhc_type}"
+                # Check if column exists, add it with default np.nan if it doesn't
+                if col_name not in comp_df.columns:
+                    comp_df[col_name] = np.nan
+                
                 seq_df = pop_cov_df[
-                    (pop_cov_df["seq_id"] == seq_id)
-                    & (pop_cov_df["mhc_type"] == mhc_type)
-                    & (pop_cov_df["vaccine_coverage"] == coverage)
+                    (pop_cov_df[group_cols[0]] == seq_id)
+                    & (pop_cov_df[group_cols[1]] == mhc_type)
+                    & (pop_cov_df[group_cols[2]] == coverage)
                 ]
                 count = seq_df["n_target"].values
                 freq = seq_df["pop_cov"].values
                 exp = (count * freq).sum()
                 comp_df.loc[
                     comp_df["Sequence_id"] == seq_id,
-                    f"E(#DPs)_{cov_label}_cov_{mhc_type}",
+                    col_name,
                 ] = exp
     return comp_df
 
@@ -1949,6 +2023,30 @@ def compute_exp_dps_cov_comparison(path_cov_df: pd.DataFrame):
     return pd.DataFrame(exp_dps_dict)
 
 
+def load_haps(
+    config: EpitopeGraphConfig,
+):
+    """
+    Load haplotypes and overlap haplotypes for MHC1 and MHC2
+    """
+    hap_freq_mhc1, average_frequency_mhc1 = load_haplotypes(
+        config.hap_freq_mhc1_path
+    )
+    overlap_haplotypes_mhc1 = load_overlap(None, hap_freq_mhc1, config, "mhc1")
+    hap_freq_mhc2, average_frequency_mhc2 = load_haplotypes(
+        config.hap_freq_mhc2_path
+    )
+    overlap_haplotypes_mhc2 = load_overlap(None, hap_freq_mhc2, config, "mhc2")
+    return (
+        hap_freq_mhc1,
+        average_frequency_mhc1,
+        overlap_haplotypes_mhc1,
+        hap_freq_mhc2,
+        average_frequency_mhc2,
+        overlap_haplotypes_mhc2,
+    )
+
+
 def generate_and_plot_coverage_comparison(
     exp_fasta_path: Path,
     out_path: Path,
@@ -1984,26 +2082,6 @@ def generate_and_plot_coverage_comparison(
         "pop_cov": [],
     }
 
-    def _load_haps(
-        config: EpitopeGraphConfig,
-    ):
-        hap_freq_mhc1, average_frequency_mhc1 = load_haplotypes(
-            config.hap_freq_mhc1_path
-        )
-        overlap_haplotypes_mhc1 = load_overlap(None, hap_freq_mhc1, config, "mhc1")
-        hap_freq_mhc2, average_frequency_mhc2 = load_haplotypes(
-            config.hap_freq_mhc2_path
-        )
-        overlap_haplotypes_mhc2 = load_overlap(None, hap_freq_mhc2, config, "mhc2")
-        return (
-            hap_freq_mhc1,
-            average_frequency_mhc1,
-            overlap_haplotypes_mhc1,
-            hap_freq_mhc2,
-            average_frequency_mhc2,
-            overlap_haplotypes_mhc2,
-        )
-
     # Load the experimental groups
     if diff_antigens:
         exp_peptides_dict = fasta_to_peptides_dict(exp_fasta_path, params["k"])
@@ -2022,7 +2100,7 @@ def generate_and_plot_coverage_comparison(
             hap_freq_mhc2,
             average_frequency_mhc2,
             overlap_haplotypes_mhc2,
-        ) = _load_haps(config)
+        ) = load_haps(config)
 
     # For each experimental group and each target sequence, calculate the E(#DPs)
     for exp_id, exp_peptides in tqdm(exp_peptides_dict.items()):
@@ -2044,7 +2122,7 @@ def generate_and_plot_coverage_comparison(
                 hap_freq_mhc2,
                 average_frequency_mhc2,
                 overlap_haplotypes_mhc2,
-            ) = _load_haps(config)
+            ) = load_haps(config)
 
         for mhc_type in mhc_types:
             if mhc_type == "mhc1":
@@ -2093,6 +2171,8 @@ def generate_and_plot_coverage_comparison(
 
     # Generate the dataframes
     path_cov_df = pd.DataFrame(path_cov_dict)
+    # Rename the exp_id column to replace "_" -> " "
+    path_cov_df["exp_id"] = path_cov_df["exp_id"].str.replace("_", " ")
     if antigens_order is not None:
         path_cov_df["exp_id"] = pd.Categorical(
             path_cov_df["exp_id"], categories=antigens_order, ordered=True
@@ -2260,6 +2340,13 @@ def generate_and_plot_exp_pred_data(
         results_df.to_csv(experimental_prediction_csv, index=False)
     else:
         results_df = pd.read_csv(experimental_prediction_csv)
+    
+    # Sort first by seq_id and then by test_seq_id using the following orders
+    seq_id_order = ["Spectravax", "Epigraph", "SARS-CoV-1", "SARS-CoV-2", "MERS-CoV"]
+    test_seq_id_order = ["SARS-CoV-1", "SARS-CoV-2", "MERS-CoV"]
+    results_df["seq_id"] = pd.Categorical(results_df["seq_id"], categories=seq_id_order, ordered=True)
+    results_df["test_seq_id"] = pd.Categorical(results_df["test_seq_id"], categories=test_seq_id_order, ordered=True)
+    results_df = results_df.sort_values(by=["seq_id", "test_seq_id"])
 
     plot_experimental_predictions(results_df, experimental_prediction_fig)
 
@@ -2609,11 +2696,11 @@ if __name__ == "__main__":
         "hap_freq_mhc2_path": "../optivax/haplotype_frequency_marry2.pkl",
         "k": [9, 15],
         "m": 1,
-        "n_target": 0,
+        "n_target": 1,
         "robust": False,
         "aligned": False,
         "decycle": True,
-        "equalise_clades": True,
+        "equalise_clades": False,
         "n_clusters": None,
         "weights": {
             "frequency": 1.0,
@@ -2624,7 +2711,7 @@ if __name__ == "__main__":
         "affinity_predictors": ["netmhcpan"],
     }
     analyses_params = {
-        "antigen": "Influenza-A M1",
+        "antigen": "Sarbeco-Merbeco N",
         "results_dir": "data/outputs",
         "antigens_order": [
             "Coronavirinae nsp12",
@@ -2632,16 +2719,18 @@ if __name__ == "__main__":
             "Sarbecovirus S RBD",
             "Merbecovirus S RBD",
             "Influenza A M1",
-            "H3N1 H3",
-            "H3N1 N1",
+            "H3N2 H3",
+            "HxN1 N1",
         ],
-        "run_kmer_filtering": True,
+        "run_kmer_filtering": False,
         "run_scores_distribution": False,
         "run_binding_criteria": False,
         "run_netmhc_calibration": False,
         "run_kmer_graphs": False,
+        "run_parameter_sweep": False,
+        "parameter_sweep_csv": "data/outputs/data/parameter_sweep.csv",
         "compare_antigens_fasta": "data/outputs/data/antigen_designs.fasta",
-        "run_compare_antigens": True,
+        "run_compare_antigens": False,
         "run_population_coverage": False,
         "run_pathogen_coverage": False,
         "run_experimental_prediction": False,

@@ -88,6 +88,10 @@ def plot_kmer_graph(
         edge_colours_path = [
             (u, v) for u, v, d in G.edges(data=True) if (u, v) in path_edges
         ]
+    else:
+        edge_colours_non_path = [
+            (u, v) for u, v, d in G.edges(data=True)
+        ]
 
     # Compute the max_pos value
     max_pos = max([p[0] for p in pos.values()]) + 0.5
@@ -113,15 +117,16 @@ def plot_kmer_graph(
     )
 
     # Draw the path edges
-    nx.draw_networkx_edges(
-        G,
-        pos=pos_jittered,
-        edgelist=edge_colours_path,
-        edge_color=path_edge_colour,
-        node_size=0,  # Hide the nodes for now
-        width=2,
-        ax=ax,
-    )
+    if paths is not None:
+        nx.draw_networkx_edges(
+            G,
+            pos=pos_jittered,
+            edgelist=edge_colours_path,
+            edge_color=path_edge_colour,
+            node_size=0,  # Hide the nodes for now
+            width=2,
+            ax=ax,
+        )
 
     # Label the path nodes
     if with_labels:
@@ -174,7 +179,7 @@ def plot_kmer_graphs(
     G: nx.Graph,
     paths: list,
     out_path: str,
-    fig_size: tuple = (16, 16),
+    fig_size: tuple = (16, 8),
     xlim1: tuple = None,
     xlim2: tuple = ([355, 375]),
     ylim1: tuple = ([0, 30]),
@@ -283,6 +288,7 @@ def plot_epitope_graph(
             font_color="white",
             ax=ax,
         )
+        ax.set_rasterized(True)
         limits = plt.axis("on")
         max_pos = max([p[0] for p in pos.values()]) + 0.5
         ax.set_xlim([-0.5, max_pos])
@@ -291,7 +297,7 @@ def plot_epitope_graph(
         ax.spines.top.set_visible(False)
         ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
         ax.tick_params(axis="both", which="major", labelsize=14)
-        plt.ylabel("K-mer Score", fontsize=18)
+        plt.ylabel("K-mer Coverage ($c$)", fontsize=18)
         plt.xlabel("K-mer Position", fontsize=18)
 
 
@@ -417,11 +423,11 @@ def plot_scores_distribution(
         antigens_order = df.columns
 
     score_names = {
-        "c_path": "Pathogen coverage ($c_{path}$)",
-        "c_mhc1": "MHC-I host coverage ($c_{mhc1}$)",
-        "c_mhc2": "MHC-II host coverage ($c_{mhc2}$)",
-        "c": "Coverage ($c$)",
-        "c_clade": "Clade coverage ($c_{clade}$)",
+        "c_path": "Pathogen coverage ($cov_{path}$)",
+        "c_mhc1": "MHC-I host coverage ($cov_{mhc1}$)",
+        "c_mhc2": "MHC-II host coverage ($cov_{mhc2}$)",
+        "c": "Coverage ($cov$)",
+        "c_clade": "Clade coverage ($cov_{clade}$)",
     }
 
     # Determine the number of unique scores and antigens
@@ -488,6 +494,7 @@ def plot_scores_distribution(
 
     # Adjust layout
     plt.tight_layout()
+    plt.subplots_adjust(left=0.08) 
 
     # Set a common Y-label
     fig.text(0.05, 0.5, "Density", va="center", rotation="vertical", fontsize=14)
@@ -1129,11 +1136,15 @@ def plot_path_exp_dps_cov_comparison(
     ymax=None,
     rotate_xticks=False,
     point_size=6,
+    x="exp_id",
+    y="E(#DPs)",
+    hue="exp_id",
 ):
     """
     Plot the expected number of DPs for each experimental group and each pathogen in the target sequences
     """
-    exp_dps_df = exp_dps_df[exp_dps_df["mhc_type"] == mhc_type]
+    if mhc_type:
+        exp_dps_df = exp_dps_df[exp_dps_df["mhc_type"] == mhc_type]
 
     # Plot the results as a violin plot
     sns.set(style="whitegrid", palette="colorblind", font_scale=1.2)
@@ -1142,8 +1153,8 @@ def plot_path_exp_dps_cov_comparison(
 
     # Plot the violin plot
     sns.violinplot(
-        x="exp_id",
-        y="E(#DPs)",
+        x=x,
+        y=y,
         # hue="exp_id",
         data=exp_dps_df,
         palette="colorblind",
@@ -1153,10 +1164,10 @@ def plot_path_exp_dps_cov_comparison(
         cut=0,
     )
     # Add the data points
-    sns.swarmplot(
-        x="exp_id",
-        y="E(#DPs)",
-        hue="exp_id",
+    sns.stripplot(
+        x=x,
+        y=y,
+        hue=hue,
         data=exp_dps_df,
         palette="colorblind",
         ax=ax,
@@ -1833,7 +1844,7 @@ def plot_exp_dps_by_country(
 
 
 def plot_parameter_sweep_surface(
-    antigens=["n", "nsp12", "h3", "n1"],
+    csv_path: Path,
     x: str = "w_mhc1",
     y: str = "w_mhc2",
     zs=["av_cov", "path_cov", "pop_cov_mhc1_n_5", "pop_cov_mhc2_n_5"],
@@ -1844,29 +1855,41 @@ def plot_parameter_sweep_surface(
         "Population Coverage MHC-II n ≥ 5 (%)",
     ],
     out_path="data/figures/param_sweep_surface.png",
+    antigens_order = [
+            "Coronavirinae nsp12",
+            "Sarbeco-Merbeco N",
+            "Sarbecovirus S RBD",
+            "Merbecovirus S RBD",
+            "Influenza A M1",
+            "H3N2 H3",
+            "HxN1 N1",
+    ]
 ) -> None:
     """
     Plot parameter sweep 3D surface plot
     """
+    all_antigens_df = pd.read_csv(csv_path)
+    antigens = all_antigens_df["antigen"].unique()
+    z_max = int(max(all_antigens_df[zs].max()) + 1)
     # Plot a grid of 3D surface plots
     fig, ax = plt.subplots(
-        len(zs), len(antigens), figsize=(20, 20), subplot_kw={"projection": "3d"}
+        len(zs), len(antigens), figsize=(20, 12), subplot_kw={"projection": "3d"}
     )
-    fig.subplots_adjust(wspace=0.1, hspace=0.1)
+    fig.subplots_adjust(wspace=0.2, hspace=0)
 
     # Generate the surface plot for each antigen
-    for i, antigen in enumerate(antigens):
+    for i, antigen in enumerate(antigens_order):
         for j, z in enumerate(zs):
-            param_sweep_path = f"data/param_sweep_{antigen}.csv"
-
+            df = all_antigens_df.copy()
+            df = df[df["antigen"] == antigen]
             # Load data
-            df = pd.read_csv(param_sweep_path)
-            covs = ["pop_cov_mhc1_n_5", "pop_cov_mhc2_n_5", "path_cov"]
-            df["av_cov"] = df[covs].mean(axis=1)
+            covs = zs
+            # Multiply by 100 to get percentage
+            # df[covs] = df[covs] * 100
 
             # Increase the resolution of the grid
-            x_unique = np.linspace(df[x].min(), df[x].max(), 100)
-            y_unique = np.linspace(df[y].min(), df[y].max(), 100)
+            x_unique = np.linspace(df[x].min(), df[x].max(), z_max)
+            y_unique = np.linspace(df[y].min(), df[y].max(), z_max)
             x_grid, y_grid = np.meshgrid(x_unique, y_unique)
             z_grid = griddata((df[x], df[y]), df[z], (x_grid, y_grid), method="linear")
             df_grid = pd.DataFrame(
@@ -1874,25 +1897,14 @@ def plot_parameter_sweep_surface(
             )
 
             # Plot the chosen point, surface, and contour
-            ax[j, i].plot(
-                [20],
-                [10],
-                [z_grid[10, 20]],
-                markerfacecolor="black",
-                markeredgecolor="black",
-                marker="o",
-                alpha=1,
-                markersize=7.5,
-                zorder=20,
-            )
-            ax[j, i].plot_surface(
+            surf = ax[j, i].plot_surface(
                 x_grid,
                 y_grid,
                 z_grid,
                 cmap=cm.viridis,
                 linewidth=0,
                 vmin=0,
-                vmax=100,
+                vmax=z_max,
                 antialiased=True,
                 zorder=1,
             )
@@ -1905,17 +1917,21 @@ def plot_parameter_sweep_surface(
                 linestyles="solid",
                 offset=-1,
                 vmin=0,
-                vmax=100,
+                vmax=z_max,
                 zorder=0,
             )
             # Set the axis limits, labels, and title
-            ax[j, i].set_zlim(0, 100)
+            ax[j, i].set_zlim(0, z_max)
             ax[j, i].set_xlabel("$w_{mhc1}$")
             ax[j, i].set_ylabel("$w_{mhc2}$")
             if i == len(antigens) - 1:
                 ax[j, i].set_zlabel(z_labels[j])
             if j == 0:
-                ax[j, i].set_title(f"{antigen.upper()}")
+                ax[j, i].set_title(antigen)
+            
+    # Add a single colorbar to the right of the entire figure
+    cbar = fig.colorbar(surf, ax=ax.ravel().tolist(), shrink=0.3, aspect=20)
+    cbar.set_label('Expected Number of Displayed Peptides')
 
     # Save the plot
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
@@ -2298,7 +2314,7 @@ def plot_annot_cov_by_pos(
             data=kmer_scores_df,
             x="position",
             y="conservation_sarbeco",
-            label="Conservation (Sarbeco)",
+            label="Pathogen Coverage (Sarbeco)",
             ax=ax2,
             color=sns.xkcd_rgb["lightish blue"],
             linestyle="dashed",
@@ -2307,12 +2323,12 @@ def plot_annot_cov_by_pos(
             data=kmer_scores_df,
             x="position",
             y="conservation_merbeco",
-            label="Conservation (Merbeco)",
+            label="Pathogen Coverage (Merbeco)",
             ax=ax2,
             color=sns.xkcd_rgb["darkish blue"],
             linestyle="dashed",
         )
-        conservation_label = "Conservation (Total)"
+        conservation_label = "Pathogen Coverage (Total)"
     sns.lineplot(
         data=kmer_scores_df,
         x="position",
@@ -2338,8 +2354,8 @@ def plot_annot_cov_by_pos(
     # Set axis limits and labels
     plt.xlim(0, kmer_scores_df["position"].max())
     plt.ylim(0, 100)
-    plt.xlabel("Amino Acid Position in CITVax Vaccine Design")
-    plt.ylabel("K-mer Score (%)")
+    plt.xlabel("Amino Acid Position in Vaccine Design")
+    plt.ylabel("Coverage Score (%)")
     plt.legend(bbox_to_anchor=(1.01, 0.8), loc=2, borderaxespad=0.0)
     plt.tight_layout()
 

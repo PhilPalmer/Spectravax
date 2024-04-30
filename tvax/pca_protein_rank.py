@@ -233,7 +233,7 @@ def plot_pca(
     # Assign colors to clusters
     cluster_colours = {
         cluster: colours[i % len(colours)]
-        for i, cluster in enumerate(df[group_by].unique())
+        for i, cluster in enumerate(sorted(df[group_by].unique()))
     }
 
     if interactive:
@@ -287,7 +287,7 @@ def plot_pca(
 
         # Then plot colored points
         group_df_colored = df.loc[
-            (df[group_by] == t1) & (df.get("passed", True) != False)
+            (df[group_by] == t1) & (df.get("passed", True) == True)
         ]
         X_colored = group_df_colored["PCA1"]
         Y_colored = group_df_colored["PCA2"]
