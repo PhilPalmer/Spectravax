@@ -112,7 +112,7 @@ def add_population_coverage(
     )
     hap_freq, average_frequency = load_haplotypes(hap_freq_path)
     overlap_haplotypes = load_overlap(peptides, hap_freq, config, mhc_type)
-    use_probabilities = True if config.n_target else False
+    use_probabilities = config.probabilistic_coverage
 
     # Calculate and save the population coverage for each peptide
     for e in kmers_dict:
@@ -202,10 +202,11 @@ def load_overlap(peptides, hap_freq, config: EpitopeGraphConfig, mhc_type: str):
         # Drop the loci from the columns and get the data down to a Single Index of alleles for the columns
         pmhc_aff_pivot = pmhc_aff_pivot.droplevel("loci", axis=1)
         # Run the add_hits_across_haplotypes function on the desired data.
-        overlap_haplotypes = add_hits_across_haplotypes(pmhc_aff_pivot, hap_freq)
+        print(f"Adding hits across haplotypes for {mhc_type}")
+        overlap_haplotypes = add_hits_across_haplotypes(pmhc_aff_pivot, hap_freq, config.probabilistic_coverage)
 
         # Save to file
-        overlap_haplotypes.to_pickle(immune_scores_path)
+        overlap_haplotypes.to_pickle(immune_scores_path, protocol=2)
 
     return overlap_haplotypes
 
@@ -402,7 +403,7 @@ def ensemble_predictions(netmhc_pivot: pd.DataFrame, mhcflurry_pivot: pd.DataFra
 
 
 def add_hits_across_haplotypes(
-    df_binarized: pd.DataFrame, df_hap_freq: pd.DataFrame
+    df_binarized: pd.DataFrame, df_hap_freq: pd.DataFrame, use_probabilities: bool = False
 ) -> pd.DataFrame:
     """
     Add the hits across haplotypes
@@ -411,13 +412,25 @@ def add_hits_across_haplotypes(
     """
     unique_columns = df_binarized.columns.unique()
     df_overlap = pd.DataFrame(index=df_binarized.index, columns=df_hap_freq.columns)
-    for pept in df_overlap.index:
-        for col in df_overlap.columns:
-            temp_sum = 0
-            for hap_type in col:
-                if hap_type in unique_columns:
-                    temp_sum += float(df_binarized.at[pept, hap_type])
-            df_overlap.at[pept, col] = temp_sum
+    if use_probabilities:
+        print("Using probabilities")
+        for pept in df_overlap.index:
+            for col in df_overlap.columns:
+                prob_not_present = 1.0  # Start with the probability that no allele displays
+                for hap_type in col:
+                    if hap_type in unique_columns:
+                        # Multiply the probabilities of not being displayed by each allele
+                        prob_not_present *= (1 - float(df_binarized.at[pept, hap_type]))
+                # Invert to get the probability of at least one allele presenting the peptide
+                df_overlap.at[pept, col] = 1 - prob_not_present
+    else:
+        for pept in df_overlap.index:
+            for col in df_overlap.columns:
+                temp_sum = 0
+                for hap_type in col:
+                    if hap_type in unique_columns:
+                        temp_sum += float(df_binarized.at[pept, hap_type])
+                df_overlap.at[pept, col] = temp_sum
     return df_overlap
 
 
@@ -441,7 +454,7 @@ def optivax_robust(
         return my_input
 
     num_of_haplotypes = len(over.columns)
-    total_overlays = np.zeros(num_of_haplotypes, dtype=int)
+    total_overlays = np.zeros(num_of_haplotypes, dtype=float)
 
     for pept in set_of_peptides:
         cons = 1 if kmers_dict is None else kmers_dict[pept]["frequency"]
