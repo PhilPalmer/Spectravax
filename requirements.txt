@@ -2,9 +2,10 @@ bcbio-gff==0.7.0
 biopython==1.79
 dna-features-viewer==3.1.2
 jupyterlab==3.4.5
+ipywidgets==7.7.2
 matplotlib==3.5.3
 mhcflurry==2.0.6
-networkx==2.8.5
+networkx==3.4.1
 numpy==1.23.2
 pandas==1.4.3
 plotly==4.5.2
