@@ -192,7 +192,10 @@ def get_longest_orf(seq: str, table: int = 1):
         orfs = []
         seq_len = len(nuc)
         for frame in range(3):
-            trans = nuc[frame:].translate(trans_table)
+            try:
+                trans = nuc[frame:].translate(trans_table)
+            except:
+                continue
             trans_len = len(trans)
             aa_start = 0
             aa_end = 0
