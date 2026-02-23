@@ -1,4 +1,3 @@
-import mhcflurry
 import numpy as np
 import os
 import pandas as pd
@@ -231,6 +230,7 @@ def predict_affinity_mhcflurry(
         mhcflurry_pan_cmd = "mhcflurry-downloads fetch models_class1_pan"
         subprocess.call(mhcflurry_presentation_cmd, shell=True)
         subprocess.call(mhcflurry_pan_cmd, shell=True)
+        import mhcflurry
         predictor = mhcflurry.Class1AffinityPredictor().load()
         peptides["key"] = 0
         hla_alleles["key"] = 0
