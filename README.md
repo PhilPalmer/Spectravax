@@ -16,7 +16,7 @@ Using Spectravax, we designed a nucleocapsid (N) antigen to elicit cross-reactiv
 ## The Spectravax Framework
 
 <p align="center">
-  <img src="docs/fig2_spectravax_framework.png" alt="The Spectravax Framework" width="800">
+  <img src="assets/fig2_spectravax_framework.png" alt="The Spectravax Framework" width="800">
 </p>
 
 **A)** Overview of the Spectravax vaccine design aiming to maximise coverage of host and pathogen populations. Pathogen coverage is shown as the fraction of pathogen variants (green highlighted viruses) containing peptides in the vaccine design. Host coverage is represented by the fraction of individuals (green highlighted figures) predicted to present vaccine-derived peptides via their HLA alleles. **B)** Spectravax computational workflow: sequence preprocessing, k-mer generation, filtering, scoring, graph construction, vaccine design, and evaluation.
@@ -122,10 +122,12 @@ Spectravax/
 │   ├── plot.py                  Visualisation functions
 │   ├── pca_protein_rank.py      PCA-based clade assignment
 │   └── netmhcpan_workflow.py    NetMHCpan / NetMHCIIpan integration via Redun
+├── assets/                      Figures/images
+│   └── fig2_spectravax_framework.png
+├── examples/                    Example input files
+│   └── test_input.fasta         Test FASTA (10 sequences, 20 AAs each)
 ├── environment.yml              Conda environment specification
 ├── requirements.txt             Python package dependencies
-├── main.nf                      Nextflow pipeline for HPC NetMHCpan predictions
-├── nextflow.config              Nextflow configuration
 ├── LICENSE                      MIT license
 └── README.md                    This file
 ```
