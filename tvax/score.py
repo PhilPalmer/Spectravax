@@ -42,8 +42,8 @@ def add_score(kmers_dict: dict, config: EpitopeGraphConfig) -> dict:
     if config.scoring_method == "multiplicative":
         for kmer in kmers_dict:
             f_cons = kmers_dict[kmer]["frequency"]
-            f_mhc1 = kmers_dict[kmer]["population_coverage_mhc1"]
-            f_mhc2 = kmers_dict[kmer]["population_coverage_mhc2"]
+            f_mhc1 = kmers_dict[kmer].get("population_coverage_mhc1", 0)
+            f_mhc2 = kmers_dict[kmer].get("population_coverage_mhc2", 0)
             # TODO: Rename "clade_weight" -> "clade"
             f_clade = kmers_dict[kmer]["clade_weight"]
             w_cons = config.weights.frequency
@@ -57,12 +57,12 @@ def add_score(kmers_dict: dict, config: EpitopeGraphConfig) -> dict:
         for kmer in kmers_dict:
             kmers_dict[kmer]["score"] = sum(
                 [
-                    kmers_dict[kmer][name] * val
+                    kmers_dict[kmer].get(name, 0) * val
                     for name, val in config.weights
-                    if val > 0
+                    if val > 0 and name != "clade"
                 ]
-            ) / sum(config.weights.dict().values())
-            # Multiple the total score by the clade weight
+            ) / sum(v for k, v in config.weights if v > 0 and k != "clade")
+            # Multiply the total score by the clade weight
             kmers_dict[kmer]["score"] *= kmers_dict[kmer]["clade_weight"]
         # Min-max scale the scores
         scores = [kmers_dict[kmer]["score"] for kmer in kmers_dict]
