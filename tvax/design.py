@@ -3,7 +3,7 @@
 import networkx as nx
 import pandas as pd
 
-from tqdm.notebook import tqdm
+from tqdm.auto import tqdm
 from tvax.config import EpitopeGraphConfig
 from tvax.graph import argmax, f, P
 from tvax.eval import compute_population_coverage
