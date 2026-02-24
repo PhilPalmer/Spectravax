@@ -1,4 +1,5 @@
 biopython>=1.79
+click>=8.0.0
 dna-features-viewer>=3.1.2
 matplotlib>=3.5.3
 networkx>=3.4.1
