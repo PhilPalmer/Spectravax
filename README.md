@@ -26,8 +26,8 @@ Using Spectravax, we designed a nucleocapsid (N) antigen to elicit cross-reactiv
 ### Prerequisites
 
 - [Conda](https://docs.conda.io/en/latest/) or [Mamba](https://mamba.readthedocs.io/)
-- [NetMHCpan 4.1](https://services.healthtech.dtu.dk/services/NetMHCpan-4.1/) — MHC-I binding predictions (requires academic license from DTU)
-- [NetMHCIIpan 4.0](https://services.healthtech.dtu.dk/services/NetMHCIIpan-4.0/) — MHC-II binding predictions (requires academic license from DTU)
+- [NetMHCpan 4.2](https://services.healthtech.dtu.dk/services/NetMHCpan-4.2/) — MHC-I binding predictions (requires academic license from DTU)
+- [NetMHCIIpan 4.3](https://services.healthtech.dtu.dk/services/NetMHCIIpan-4.3/) — MHC-II binding predictions (requires academic license from DTU)
 - [CD-HIT](http://weizhong-lab.ucsd.edu/cd-hit/) — sequence clustering
 
 ### Setup
@@ -43,23 +43,44 @@ conda activate spectravax
 
 ## Quick Start
 
-### Command-line usage
+### 1. Test your installation
+
+A test FASTA file is included in `examples/`. To quickly verify everything is working, run the pipeline with pathogen coverage scoring only (no external tools or reference data required):
 
 ```bash
-# Design a vaccine antigen from a FASTA file
-python -m tvax --fasta sequences.fasta --k 9 15 --m 1 --output vaccine.fasta
+python -m tvax design \
+  --fasta examples/test_input.fasta \
+  --skip-host-coverage \
+  --results-dir results \
+  --output results/vaccine.fasta
+```
 
-# Quick test with amino acid sequences passed directly
-python -m tvax --seq "MSDNGPQNQRNAP" "MSDNGPQNQRSAP" --k 9 --output vaccine.fasta
+### 2. Run the full pipeline with host coverage
 
-# Use fast mode (sum scores) instead of robust mode (population coverage)
-python -m tvax --fasta sequences.fasta --fast --output vaccine.fasta
+The full pipeline additionally scores k-mers for MHC-I/II host coverage, which requires [NetMHCpan](https://services.healthtech.dtu.dk/services/NetMHCpan-4.1/) and [NetMHCIIpan](https://services.healthtech.dtu.dk/services/NetMHCIIpan-4.0/), as well as reference data files (HLA allele lists, haplotype frequencies, and optionally the human proteome for filtering out self-peptides).
 
-# Custom scoring weights (emphasise MHC-I coverage)
-python -m tvax --fasta sequences.fasta --w-cons 1 --w-mhc1 10 --w-mhc2 1 --output vaccine.fasta
+First, download the reference data:
 
+```bash
+python -m tvax download-data --data-dir data
+```
+
+Then run the full pipeline:
+
+```bash
+python -m tvax design \
+  --fasta examples/test_input.fasta \
+  --data-dir data \
+  --results-dir results \
+  --k 9 --k 15 \
+  --output results/vaccine.fasta
+```
+
+On the test input (10 sequences, 20 AAs each), the full pipeline took ~6 minutes on a MacBook Air. The MHC binding step uses [Redun](https://github.com/insitro/redun) to parallelise predictions and produces verbose console output, so you may want to run it in a terminal multiplexer like `tmux` or `screen`.
+
+```bash
 # See all options
-python -m tvax --help
+python -m tvax design --help
 ```
 
 ### Python API
@@ -70,21 +91,17 @@ from tvax.graph import build_epitope_graph
 from tvax.design import design_vaccines
 from tvax.seq import path_to_seq
 
-# Configure
 config = EpitopeGraphConfig(
-    fasta_path="sequences.fasta",
+    fasta_path="examples/test_input.fasta",
+    mhc1_alleles_path="spectravax_data/mhc1_alleles.txt",
+    mhc2_alleles_path="spectravax_data/mhc2_alleles.txt",
+    hap_freq_mhc1_path="spectravax_data/hap_freq_mhc1.pkl",
+    hap_freq_mhc2_path="spectravax_data/hap_freq_mhc2.pkl",
     k=[9, 15],
-    m=1,
-    n_target=1,
 )
 
-# Build the epitope graph
 G = build_epitope_graph(config)
-
-# Design the vaccine antigen
 designs = design_vaccines(G, config)
-
-# Get the amino acid sequence
 vaccine_seq = path_to_seq(designs[0])
 print(vaccine_seq)
 ```
