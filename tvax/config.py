@@ -79,7 +79,7 @@ class EpitopeGraphConfig(BaseModel):
     probabilistic_coverage: bool = True
     aligned: bool = False
     decycle: bool = True
-    equalise_clades: bool = True
+    equalise_clades: bool = False
     n_clusters: Optional[int] = None
     peptide_chunk_size: int = 500
     n_threads: int = 4
