@@ -201,21 +201,34 @@ def design(fasta, seq, fasta_nt, output, results_dir, data_dir, k, m, n_target,
         click.echo(output_text, nl=False)
 
 
+ZENODO_RECORD_ID = "18761002"
+ZENODO_BASE_URL = f"https://zenodo.org/records/{ZENODO_RECORD_ID}/files"
+
+
 @cli.command("download-data")
 @click.option("--data-dir", type=click.Path(), required=True,
               help="Directory to save reference files.")
 def download_data(data_dir):
     """Download reference data files from Zenodo."""
+    from urllib.request import urlretrieve
+
     data_dir = Path(data_dir).expanduser()
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    # TODO: Replace with actual Zenodo DOI/URL once published
-    click.echo(f"Data directory: {data_dir}")
-    click.echo("Zenodo download not yet configured. Please place reference files manually:")
+    click.echo(f"Downloading reference data to {data_dir}/")
     for config_key, filename in DATA_DIR_FILES.items():
         path = data_dir / filename
-        status = "found" if path.exists() else "MISSING"
-        click.echo(f"  {filename} [{status}]")
+        if path.exists():
+            click.echo(f"  {filename} [already exists, skipping]")
+            continue
+        url = f"{ZENODO_BASE_URL}/{filename}?download=1"
+        click.echo(f"  {filename} ... ", nl=False)
+        try:
+            urlretrieve(url, path)
+            click.echo("done")
+        except Exception as e:
+            click.echo(f"FAILED ({e})")
+    click.echo("Download complete.")
 
 
 if __name__ == "__main__":
