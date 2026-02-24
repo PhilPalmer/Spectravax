@@ -7,11 +7,9 @@ A computational method to design broad-spectrum T-cell-inducing vaccines that ac
 
 ## Overview
 
-Antigenically diverse pathogens, such as coronaviruses, pose substantial threats to global health. This highlights the need for effective broad-spectrum vaccines that elicit robust immune responses in a large proportion of the human population against a wide array of pathogen variants.
+Spectravax scores pathogen protein k-mers using two coverage metrics — **pathogen coverage** (fraction of pathogen variants containing a k-mer) and **host coverage** (fraction of the host population predicted to present vaccine-derived peptides via their HLA alleles) — then uses a graph-based algorithm to select the optimal overlapping k-mers that form a contiguous vaccine antigen maximising total coverage.
 
-Spectravax fragments target pathogen protein sequences into short subsequences called k-mers and scores them using two coverage metrics: **pathogen coverage** (the fraction of target pathogen sequences containing a given k-mer) and **host coverage** (the fraction of individuals in the target host population predicted to present vaccine-derived peptides via their HLA alleles). A graph-based algorithm then selects the optimal overlapping subset of k-mers to generate a contiguous vaccine antigen sequence that maximises the total coverage score.
-
-Using Spectravax, we designed a nucleocapsid (N) antigen to elicit cross-reactive immune responses to viruses from the Sarbecovirus and Merbecovirus subgenera of Betacoronaviruses. In silico analyses demonstrated superior predicted host and pathogen coverage for Spectravax compared to wild-type sequences and existing computational designs. Experimental validation in mice supported these predictions: Spectravax N elicited robust immune responses to SARS-CoV, SARS-CoV-2, and MERS-CoV — the three coronaviruses responsible for major outbreaks in humans since 2002 — while wild-type and existing computational designs elicited limited responses.
+We applied Spectravax to design a betacoronavirus nucleocapsid antigen. In silico and experimental (mouse) validation showed it elicited robust immune responses to SARS-CoV, SARS-CoV-2, and MERS-CoV, outperforming wild-type sequences and existing computational designs.
 
 ## The Spectravax Framework
 
