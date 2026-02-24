@@ -296,7 +296,7 @@ def predict_affinity_netmhcpan(
         pmhc_aff = pd.concat(dfs)
         pmhc_aff = pmhc_aff.rename(columns={"Peptide": "peptide", "Score": "EL-score"})
         if "nM" not in pmhc_aff.columns:
-            pmhc_aff["nM"] = 50000 ** (1 - pmhc_aff["BA-score"])
+            pmhc_aff["nM"] = 50000 ** (1 - pmhc_aff["BA_score"])
         pmhc_aff["transformed_affinity"] = pmhc_aff["nM"].apply(transform_affinity)
 
         if mhc_type == "mhc1":
@@ -321,15 +321,15 @@ def aggregate_binding_mhc1(pmhc_aff):
     a74 = (
         pmhc_aff.loc[pmhc_aff["allele"].str.contains("HLA-A74")]
         .groupby("peptide")
-        .agg("mean")
+        .agg("mean", numeric_only=True)
         .reset_index()
-    )  # ['mean', 'count'])
+    )
     a74["loci"] = "HLA-A"
     a74["allele"] = "HLA-A74"
     c17 = (
         pmhc_aff.loc[pmhc_aff["allele"].str.contains("HLA-C17")]
         .groupby("peptide")
-        .agg("mean")
+        .agg("mean", numeric_only=True)
         .reset_index()
     )
     c17["loci"] = "HLA-C"
@@ -337,7 +337,7 @@ def aggregate_binding_mhc1(pmhc_aff):
     c18 = (
         pmhc_aff.loc[pmhc_aff["allele"].str.contains("HLA-C18")]
         .groupby("peptide")
-        .agg("mean")
+        .agg("mean", numeric_only=True)
         .reset_index()
     )
     c18["loci"] = "HLA-C"
