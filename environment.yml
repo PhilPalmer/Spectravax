@@ -1,11 +1,11 @@
-name: tvax 
+name: spectravax
 channels:
   - conda-forge
   - bioconda
   - defaults
 dependencies:
-  - python>=3.5
-  - bioconda::mafft==7.505
+  - python>=3.9,<3.11
+  - mafft>=7.505
   - pip
   - pip:
     - -r requirements.txt

@@ -157,8 +157,9 @@ def plot_kmer_graph(
     ax.spines.top.set_visible(False)
     ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
     ax.tick_params(axis="both", which="major", labelsize=14)
-    ax.set_xlabel("Approximate K-mer Position", fontsize=18)
-    ax.set_ylabel("Coverage (%)", fontsize=18)
+    ax.set_xlabel("K-mer Position", fontsize=18)
+    ax.set_ylabel("$\mathbb{E}[Coverage]$ (%)", fontsize=18)
+    # ax.set_ylabel("Coverage (%)", fontsize=18)
 
     # Only show whole numbers on the x-axis
     ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
@@ -179,7 +180,7 @@ def plot_kmer_graphs(
     G: nx.Graph,
     paths: list,
     out_path: str,
-    fig_size: tuple = (16, 8),
+    fig_size: tuple = (16, 16),
     xlim1: tuple = None,
     xlim2: tuple = ([355, 375]),
     ylim1: tuple = ([0, 30]),
@@ -200,13 +201,15 @@ def plot_kmer_graphs(
     # Create the figure
     sns.set_style("whitegrid")
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=fig_size)
+    # Single figure
+    # fig, ax2 = plt.subplots(1, 1, figsize=fig_size)
 
     # Plot the graphs
     fig1 = plot_kmer_graph(
         G,
         paths,
         fig=fig,
-        ax=ax1,
+        ax=ax2,
         xlim=xlim2,
         ylim=ylim2,
         with_labels=True,
@@ -216,7 +219,7 @@ def plot_kmer_graphs(
         G,
         paths,
         fig=fig,
-        ax=ax2,
+        ax=ax1,
         xlim=xlim1,
         ylim=ylim1,
         with_labels=False,
@@ -287,6 +290,7 @@ def plot_epitope_graph(
             width=2,
             font_color="white",
             ax=ax,
+            # rasterized=True,
         )
         ax.set_rasterized(True)
         limits = plt.axis("on")
@@ -501,6 +505,10 @@ def plot_scores_distribution(
 
     # Turn off the y-axis ticks
     plt.setp(axes, yticks=[])
+
+    # Set x-axis limits for all but the last plot
+    for ax in axes[:-1]:
+        ax.set_xlim([0, 1])
 
     # Create an overall legend for the figure
     handles, labels = ax.get_legend_handles_labels()
@@ -1553,7 +1561,7 @@ def plot_single_ancestry_histogram(
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: "{:.0f}".format(x)))
     exp = (count * freq / 100).sum()
     ax.axvline(
-        x=exp, c=color, ls="--", lw=2, label="$\mathbb{E}(\# DPs)$" + f"={exp:.0f}"
+        x=exp, c=color, ls="--", lw=2, label="$\mathbb{E}[\# DPs]$" + f"={exp:.2f}"
     )
 
     if dual_histogram:
@@ -1620,6 +1628,7 @@ def plot_population_coverage_histogram(
     ancestries_order: list = ["Asian", "Black", "White", "Average"],
     palette: str = "Set2",
     axs: np.ndarray = None,
+    xmax: int = 30,
 ) -> None:
     """
     Plot the population coverage histogram based on the provided dataframe.
@@ -1640,6 +1649,11 @@ def plot_population_coverage_histogram(
             plot_single_ancestry_histogram(
                 axs[i, j], ancestry_data, ancestry, mhc_type, ancestry_colours[ancestry]
             )
+    
+    for ax in axs.flatten():
+        ax.set_xlim([0, xmax])
+        # Change x-ticks to integers every 2
+        ax.xaxis.set_major_locator(plt.MultipleLocator(5))
 
 
 ########################################################################################
@@ -1664,9 +1678,9 @@ def plot_global_distribution(
     country_name_map: dict = None,
 ):
     if mhc_type == "mhc1":
-        loci = {"DRB1", "HLA-DP", "HLA-DQ"}
-    elif mhc_type == "mhc2":
         loci = {"HLA-A", "HLA-B", "HLA-C"}
+    elif mhc_type == "mhc2":
+        loci = {"DRB1", "HLA-DP", "HLA-DQ"}
     mhc_str = "MHC-I" if mhc_type == "mhc1" else "MHC-II"
 
     # Load the world map
@@ -1703,7 +1717,7 @@ def plot_global_distribution(
         vmax=vmax,
         legend=True,
         legend_kwds={
-            "label": "E(#DPs) by Country",
+            "label": "$\mathbb{E}[\# DPs]$ by Country",
             "orientation": "horizontal",
             "shrink": 0.5,
             "aspect": 30,
@@ -1770,14 +1784,11 @@ def create_stacked_bar_plot(long_df: pd.DataFrame, ax: plt.Axes):
         ax.bar(countries, data["E(#DPs)"], bottom=bottom, label=locus, color=color)
         bottom = [b + d for b, d in zip(bottom, data["E(#DPs)"])]
 
-    ax.set_title(
-        "Expected Number of Displayed Peptides for The Top 30 Countries by Population Size"
-    )
     ax.set_xlabel("Country")
-    ax.set_ylabel("E(#DPs)")
+    ax.set_ylabel("$\mathbb{E}[\# DPs]$")
     ax.set_xlim(-0.5, len(countries) - 0.5)
     ax.set_xticks(range(len(countries)))
-    ax.set_xticklabels(countries, rotation=45, ha="right")
+    ax.set_xticklabels(countries, rotation=90, ha="right")
     handles = [
         mpatches.Patch(color=color, label=locus) for locus, color in color_dict.items()
     ]
@@ -1897,6 +1908,17 @@ def plot_parameter_sweep_surface(
             )
 
             # Plot the chosen point, surface, and contour
+            # ax[j, i].plot(
+            #     [1],
+            #     [1],
+            #     [z_grid[1, 1]],
+            #     markerfacecolor="black",
+            #     markeredgecolor="black",
+            #     marker="o",
+            #     alpha=1,
+            #     markersize=7.5,
+            #     zorder=20,
+            # )
             surf = ax[j, i].plot_surface(
                 x_grid,
                 y_grid,
@@ -2146,13 +2168,16 @@ def plot_mhc_data(mhc_class, ax1, ax2, ax3, df, vmax=None):
     subset_df = df[df["mhc_class"] == mhc_class]
     mhc_str = "MHC-I" if mhc_class == "mhc1" else "MHC-II"
     netmhc = "NetMHCpan" if mhc_class == "mhc1" else "NetMHCIIpan"
+    x = "test_seq_id"
+    y = "is_mhc1_epitope" if mhc_class == "mhc1" else "is_mhc2_epitope"
+    hue = "seq_id"
 
     # Plot the number of epitopes on ax1
     sns.barplot(
         data=subset_df,
-        x="seq_id",
-        y="is_mhc1_epitope",
-        hue="test_seq_id",
+        x=x,
+        y=y,
+        hue=hue,
         estimator=sum,
         ax=ax1,
         ci=None,
@@ -2170,9 +2195,9 @@ def plot_mhc_data(mhc_class, ax1, ax2, ax3, df, vmax=None):
     # Plot expected number of displayed peptides on ax2 subplot
     sns.barplot(
         data=subset_df,
-        x="seq_id",
+        x=x,
         y="EL-score",
-        hue="test_seq_id",
+        hue=hue,
         estimator=sum,
         ax=ax2,
         ci=None,
@@ -2184,23 +2209,23 @@ def plot_mhc_data(mhc_class, ax1, ax2, ax3, df, vmax=None):
     if vmax:
         ax2.set_ylim(bottom=0, top=vmax)
     ax2.set_xlabel("")
-    ax2.set_ylabel("E(#DPs)")
+    ax2.set_ylabel("$\mathbb{E}[\# DPs]$")
     ax2.legend().set_visible(False)
 
     # Plot the main data on ax3 subplot
     sns.violinplot(
         data=subset_df,
-        x="seq_id",
+        x=x,
         y="EL-score",
-        hue="test_seq_id",
+        hue=hue,
         ax=ax3,
         palette="colorblind",
     )
     sns.stripplot(
         data=subset_df,
-        x="seq_id",
+        x=x,
         y="EL-score",
-        hue="test_seq_id",
+        hue=hue,
         dodge=True,
         jitter=True,
         ax=ax3,
@@ -2259,8 +2284,8 @@ def plot_experimental_predictions(results_df: pd.DataFrame, out_path: str):
         bbox_to_anchor=(1.05, 1),
         loc=2,
         borderaxespad=0.0,
-        title="Peptide Pool",
-        fontsize=14,
+        title="Vaccine",
+        fontsize=15,
         title_fontsize=16,
     )
 

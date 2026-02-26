@@ -76,9 +76,10 @@ class EpitopeGraphConfig(BaseModel):
     affinity_cutoff_mhc2: float = 0.638  # 0.426 = 500nM after logistic transform
     # TODO: Use elbow method to determine the optimal conservation threshold
     conservation_threshold: float = 0.01  # Exclude k-mers with < 1% conservation
+    probabilistic_coverage: bool = True
     aligned: bool = False
     decycle: bool = True
-    equalise_clades: bool = True
+    equalise_clades: bool = False
     n_clusters: Optional[int] = None
     peptide_chunk_size: int = 500
     n_threads: int = 4
@@ -170,8 +171,11 @@ class EpitopeGraphConfig(BaseModel):
     def validate_immune_scores_mhc1_path(cls, value, values):
         if value is None:
             prefix = values.get("prefix")
+            expected = values.get("probabilistic_coverage")
             results_dir = values.get("results_dir")
             affinity_predictors = values.get("affinity_predictors")
+            if expected:
+                prefix = f"{prefix}_expected"
             if (
                 "mhcflurry" in affinity_predictors
                 and "netmhcpan" in affinity_predictors
@@ -182,7 +186,7 @@ class EpitopeGraphConfig(BaseModel):
             elif "netmhcpan" in affinity_predictors:
                 predictors = "netmhc"
             immune_scores_path = (
-                f"{results_dir}/MHC_Binding/{prefix}_immune_scores_{predictors}.pkl"
+                f"{results_dir}/MHC_Binding/{prefix}_immune_scores_{predictors}.pkl.gz"
             )
             return Path(immune_scores_path)
         return value
@@ -191,9 +195,12 @@ class EpitopeGraphConfig(BaseModel):
     def validate_immune_scores_mhc2_path(cls, value, values):
         if value is None:
             prefix = values.get("prefix")
+            expected = values.get("probabilistic_coverage")
             results_dir = values.get("results_dir")
+            if expected:
+                prefix = f"{prefix}_expected"
             immune_scores_path = (
-                f"{results_dir}/MHC_Binding/{prefix}_immune_scores_netmhcii.pkl"
+                f"{results_dir}/MHC_Binding/{prefix}_immune_scores_netmhcii.pkl.gz"
             )
             return Path(immune_scores_path)
         return value

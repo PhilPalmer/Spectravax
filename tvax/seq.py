@@ -3,7 +3,6 @@ import numpy as np
 import os
 import subprocess
 
-from Bio import pairwise2 as pw2
 from Bio import SeqIO
 from Bio.Seq import Seq
 from pathlib import Path
@@ -192,7 +191,10 @@ def get_longest_orf(seq: str, table: int = 1):
         orfs = []
         seq_len = len(nuc)
         for frame in range(3):
-            trans = nuc[frame:].translate(trans_table)
+            try:
+                trans = nuc[frame:].translate(trans_table)
+            except:
+                continue
             trans_len = len(trans)
             aa_start = 0
             aa_end = 0
@@ -349,11 +351,14 @@ def compute_percent_match(first_seq, second_seq):
     :param second_seq: Second sequence
     :return: Percent match
     """
-    global_align = pw2.align.globalxx(first_seq, second_seq)
+    from Bio.Align import PairwiseAligner
+    aligner = PairwiseAligner()
+    aligner.mode = "global"
+    alignment = aligner.align(first_seq, second_seq)[0]
     seq_length = min(len(first_seq), len(second_seq))
-    matches = global_align[0][2]
+    matches = alignment.score
     percent_match = (matches / seq_length) * 100
-    return pw2.format_alignment(*global_align[0]), percent_match
+    return str(alignment), percent_match
 
 
 def path_to_seq(path: list) -> str:

@@ -88,11 +88,11 @@ def antigens_dict():
         "Sarbeco-Merbeco N": {
             "fasta_path": "data/input/sar_mer_nuc_protein_clustered_95.fasta",
             "results_dir": "data/results",
-            "n_clusters": 7,
             "raw_affinity_netmhc_path": "data/results/MHC_Binding/sar_mer_nuc_protein_raw_affinity_netmhc.pkl.gz",
             "raw_affinity_netmhcii_path": "data/results/MHC_Binding/sar_mer_nuc_protein_raw_affinity_netmhcii.pkl.gz",
-            "immune_scores_mhc1_path": "data/results/MHC_Binding/sar_mer_nuc_protein_immune_scores_netmhc.pkl",
-            "immune_scores_mhc2_path": "data/results/MHC_Binding/sar_mer_nuc_protein_immune_scores_netmhcii.pkl",
+            "immune_scores_mhc1_path": "data/results/MHC_Binding/sar_mer_nuc_protein_expected_immune_scores_netmhc.pkl.gz",
+            "immune_scores_mhc2_path": "data/results/MHC_Binding/sar_mer_nuc_protein_expected_immune_scores_netmhcii.pkl.gz",
+            "n_clusters": 7,
             "weights": {
                 "frequency": 1.0,
                 "population_coverage_mhc1": 2.0,
@@ -573,7 +573,7 @@ def construct_antigen_graphs(
         # Update all params using the antigen_dict
         params = old_params.copy()
         params = {**params, **antigen_dict}
-        params["equalise_clades"] = True
+        params["equalise_clades"] = False
         params["n_clusters"] = None
         params["weights"] = {
             "frequency": 1,
@@ -729,7 +729,7 @@ def load_or_compute_population_coverage(
         host_cov_df["cov_type"] = "host"
         cov_df["cov_type"] = "host+pathogen"
         cov_df = pd.concat([host_cov_df, cov_df])
-        host_cov_df.to_csv(csv_path, index=False)
+        cov_df.to_csv(csv_path, index=False)
     else:
         print(f"Loading population coverage for {config.prefix} from {csv_path}")
         cov_df = pd.read_csv(csv_path)
@@ -768,7 +768,7 @@ def generate_population_coverage_data(
             else:
                 anc_freq = hap_freq.loc[anc].copy()
             overlap_haplotypes = load_overlap(peptides, anc_freq, config, mhc_type)
-            for n_target in n_targets:
+            for n_target in tqdm(n_targets):
                 pop_cov = optivax_robust(
                     overlap_haplotypes, anc_freq, n_target, peptides, kmers_dict
                 )
@@ -914,7 +914,7 @@ def fetch_HLA_frequencies(countries: list, csv_output_path: Path):
 
 def combine_allele_frequencies(cafs_df: pd.DataFrame, countries_df: pd.DataFrame):
     """
-    Combine the allele frequencies for the same locus within the same country
+    Combine the allele frequencies for the same locus within the same country and compute population weighted continent and global frequencies
     """
     cafs = []
 
@@ -928,12 +928,13 @@ def combine_allele_frequencies(cafs_df: pd.DataFrame, countries_df: pd.DataFrame
             try:
                 aftab = HLAfreq.decrease_resolution(aftab, 2)
             except Exception as e:
-                print(f"Could not decrease resolution for {country} {locus}")
+                # print(f"Could not decrease resolution for {country} {locus}")
                 continue
             # Combine studies within country
             caf = HLAfreq.combineAF(aftab)
             # Add country name to dataset, this is used as `datasetID` going forward
             caf["country"] = country
+            caf["location_type"] = "country"
             # Save the allele frequency data
             cafs.append(caf)
 
@@ -945,21 +946,27 @@ def combine_allele_frequencies(cafs_df: pd.DataFrame, countries_df: pd.DataFrame
         cafs_df.sample_size * 2 * cafs_df.individual_weight
     )
 
-    # Combine all country data
+    # Compute global and continent-level allele frequencies
     global_cafs = []
+    for locus in cafs_df['loci'].unique():
+        locus_df = cafs_df[cafs_df['loci'] == locus]
+        
+        # Combine globally
+        global_caf = HLAfreq.combineAF(locus_df, datasetID='country', weights='weighted_sample_size')
+        global_caf['country'] = 'Global'
+        global_caf['location_type'] = 'global'
+        global_cafs.append(global_caf)
 
-    for locus in cafs_df.loci.unique():
-        locus_df = cafs_df[cafs_df.loci == locus]
-        # Combine the allele frequency data from all countries
-        caf = HLAfreq.combineAF(
-            locus_df, datasetID="country", weights="weighted_sample_size"
-        )
-        global_cafs.append(caf)
+        # Combine by continent
+        for continent in locus_df['continent'].dropna().unique():
+            continent_df = locus_df[locus_df['continent'] == continent]
+            continent_caf = HLAfreq.combineAF(continent_df, datasetID='country', weights='weighted_sample_size')
+            continent_caf['country'] = continent
+            continent_caf['location_type'] = 'continent'
+            global_cafs.append(continent_caf)
 
+    # Concatenate global and continent data to the main DataFrame
     global_df = pd.concat(global_cafs, ignore_index=True)
-
-    # Add the global data to the country allele frequencies
-    global_df["country"] = "Global"
     cafs_df = pd.concat([cafs_df, global_df], ignore_index=True)
 
     return cafs_df
@@ -1173,6 +1180,21 @@ def compute_exp_dps_all_countries_loci(
 
     pop_cov_df = pd.DataFrame(pop_cov_dict)
     exp_dps_df = compute_country_exp_dps(pop_cov_df)
+
+    # Add location metadata
+    exp_dps_df = exp_dps_df.merge(cafs_df[['country', 'pop_est', 'location_type', 'continent']].drop_duplicates(), on='country', how='left')
+
+    # Add the pop_est for global and continent data by summing the pop_est for all countries in the continent
+    for location in exp_dps_df[exp_dps_df['location_type'] != 'country']['country'].unique():
+        if location == 'Global':
+            rows = exp_dps_df[exp_dps_df['location_type'] == 'country'][['country','pop_est']].drop_duplicates()
+            pop_est = rows['pop_est'].sum()
+            exp_dps_df.loc[exp_dps_df['country'] == 'Global', 'pop_est'] = pop_est
+        else:
+            rows = exp_dps_df[exp_dps_df['continent'] == location][['country','pop_est']].drop_duplicates()
+            pop_est = rows['pop_est'].sum()
+            exp_dps_df.loc[exp_dps_df['country'] == location, 'pop_est'] = pop_est
+    
     return exp_dps_df
 
 
@@ -1186,12 +1208,14 @@ def generate_and_plot_exp_dps(
     country_name_mapping: dict = country_name_mapping(),
 ):
     if exp_dps_by_country_data_csv.exists():
+        print(f"Loading country data from {exp_dps_by_country_data_csv}")
         countries_df = pd.read_csv(exp_dps_by_country_data_csv)
     else:
         countries_df = preprocess_and_save_country_data(
             countries_path=exp_dps_by_country_data_csv
         )
     if exp_dps_by_country_csv.exists():
+        print(f"Loading country data from {exp_dps_by_country_csv}")
         cafs_df = pd.read_csv(exp_dps_by_country_csv)
     else:
         countries_list = countries_df.country.tolist()
@@ -2012,6 +2036,8 @@ def compute_exp_dps_cov_comparison(path_cov_df: pd.DataFrame):
                     & (path_cov_df["target_id"] == target_id)
                     & (path_cov_df["mhc_type"] == mhc_type)
                 ]
+                if len(exp_df) == 0:
+                    continue
                 count = exp_df["n_target"].values
                 freq = exp_df["pop_cov"].values
                 exp = (count * freq).sum()
@@ -2111,6 +2137,7 @@ def generate_and_plot_coverage_comparison(
             antigen_graph = antigen_graphs[exp_id]
             kmers_dict = dict(antigen_graph.nodes(data=True))
             # Define target_peptides_dict
+            target_peptides_dict = {}
             target_peptides_dict = fasta_to_peptides_dict(
                 antigen_params["fasta_path"], config.k
             )
@@ -2267,7 +2294,10 @@ def process_binding_predictions(
             intersection = set(peptides).intersection(test_peptides)
             for mhc_class, alleles in mhc_alleles.items():
                 for allele in alleles:
-                    df = binders_df.loc[intersection, allele]
+                    df = binders_df[
+                        (binders_df['allele'] == allele) &
+                        (binders_df['peptide'].isin(intersection))
+                    ]
                     for peptide in intersection:
                         entry = {
                             "seq_id": seq_id,
@@ -2275,7 +2305,7 @@ def process_binding_predictions(
                             "peptide": peptide,
                             "mhc_class": mhc_class,
                             "allele": allele,
-                            "EL-score": df.loc[peptide],
+                            "EL-score": df[df['peptide'] == peptide]['EL-score'].values[0]
                         }
                         results.append(entry)
     return pd.DataFrame(results)
@@ -2634,12 +2664,12 @@ def compute_cov_by_pos(
         sar_seqs_dict = {
             seq_id: seq
             for seq_id, seq in seqs_dict.items()
-            if clades_dict[seq_id] in sarbeco_clades
+            if int(clades_dict[seq_id]) in sarbeco_clades
         }
         mer_seqs_dict = {
             seq_id: seq
             for seq_id, seq in seqs_dict.items()
-            if clades_dict[seq_id] in merbeco_clades
+            if int(clades_dict[seq_id]) in merbeco_clades
         }
         N_sar = len(sar_seqs_dict)
         N_mer = len(mer_seqs_dict)
@@ -2701,6 +2731,7 @@ if __name__ == "__main__":
         "aligned": False,
         "decycle": True,
         "equalise_clades": False,
+        "probabilistic_coverage": False,
         "n_clusters": None,
         "weights": {
             "frequency": 1.0,
@@ -2711,6 +2742,7 @@ if __name__ == "__main__":
         "affinity_predictors": ["netmhcpan"],
     }
     analyses_params = {
+        # "antigen": "Influenza A M1",
         "antigen": "Sarbeco-Merbeco N",
         "results_dir": "data/outputs",
         "antigens_order": [
@@ -2728,9 +2760,10 @@ if __name__ == "__main__":
         "run_netmhc_calibration": False,
         "run_kmer_graphs": False,
         "run_parameter_sweep": False,
+        "antigen_graphs_pkl": "data/outputs/data/antigen_graphs.pkl",
         "parameter_sweep_csv": "data/outputs/data/parameter_sweep.csv",
-        "compare_antigens_fasta": "data/outputs/data/antigen_designs.fasta",
-        "run_compare_antigens": False,
+        "compare_antigens_fasta": "data/outputs/data/antigen_designs_expected.fasta",
+        "run_compare_antigens": True,
         "run_population_coverage": False,
         "run_pathogen_coverage": False,
         "run_experimental_prediction": False,
@@ -2744,7 +2777,7 @@ if __name__ == "__main__":
         "run_exp_dps_by_country": False,
         "exp_dps_by_country_data_csv": "data/input/country_data.csv",
         "exp_dps_by_country_csv": "data/input/HLA_freqs_by_country.csv",
-        "run_coverage_comparison": True,
+        "run_coverage_comparison": False,
     }
     config = AnalysesConfig(**analyses_params)
     run_analyses(config, kmer_graph_params)

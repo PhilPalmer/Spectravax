@@ -396,7 +396,7 @@ def pca_protein_rank(msa_pr_path, n_clusters=None, plot=True):
 
     # TODO: Investigate NaN values in the 'cluster_rank' column
     comp_df = get_clusters(msa_df, pca_scores, n_clusters)
-    loadings_df = get_loadings(pca, msa_df, ranked_msa_df)
+    # loadings_df = get_loadings(pca, msa_df, ranked_msa_df)
     clusters_dict = (
         comp_df[["Sequence_id", "cluster"]]
         .set_index("Sequence_id")
@@ -411,7 +411,7 @@ def pca_protein_rank(msa_pr_path, n_clusters=None, plot=True):
     pca_2d_plot = plot_pca(comp_df, plot_type="2D")
     pca_3d_plot = plot_pca(comp_df, plot_type="3D")
     pca_interactive_plot = plot_pca(comp_df, interactive=True)
-    loadings_plot = plot_loadings(loadings_df)
+    # loadings_plot = plot_loadings(loadings_df)
 
     return (
         clusters_dict,
@@ -420,7 +420,7 @@ def pca_protein_rank(msa_pr_path, n_clusters=None, plot=True):
         pca_2d_plot,
         pca_3d_plot,
         pca_interactive_plot,
-        loadings_plot,
+        # loadings_plot,
     )
 
 

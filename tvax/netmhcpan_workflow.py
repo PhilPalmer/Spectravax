@@ -93,8 +93,8 @@ def concat_allele_files(
     out_path = f"{preds_dir}/{allele.replace('*', '_').replace(':', '')}_preds.xls"
     return script(
         f"""
-        head -n 2 -q {allele_fname} > {out_path}
-        tail -n +3 -q {allele_fnames} >> {out_path}
+        head -n 2 {allele_fname} > {out_path}
+        for f in {allele_fnames}; do tail -n +3 "$f"; done >> {out_path}
         """,
         inputs=[f.stage(f.path) for f in allele_paths],
         outputs=[allele, File(out_path).stage(out_path)],
@@ -152,7 +152,11 @@ def scheduler(max_workers: int = 20, redun_db_path: Path = "redun.db"):
     return Scheduler(
         config=Config(
             {
-                "backend": {"db_uri": f"sqlite:///{redun_db_path}"},
+                "backend": {
+                    "db_uri": f"sqlite:///{redun_db_path}",
+                    # "max_value_size": "8000000000",
+                    # "value_store_path": "/tmp/redun.tmp",
+                },
                 "executors.default": {"type": "local", "max_workers": max_workers},
             }
         )
